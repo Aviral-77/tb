@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from langchain_core.messages import SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -74,9 +74,9 @@ def get_or_create_graph(session_id: str, parsed_data: dict):
     thresholds = _load_thresholds()
     tools = build_tools(parsed_data, thresholds)
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=settings.GEMINI_API_KEY,
+    llm = ChatOllama(
+        model=settings.OLLAMA_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
         temperature=0,
     )
 
