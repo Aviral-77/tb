@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "mistral"
 
+    # PostgreSQL
+    DATABASE_URL: str = "postgresql://tbg:tbg_secret@localhost:5432/tbg"
+
     # LangSmith
     LANGSMITH_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "tbg-ai-copilot"
