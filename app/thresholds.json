@@ -1,0 +1,136 @@
+{
+  "rules": [
+    {
+      "sheet": "pnl_conso",
+      "metric_code": "PL1",
+      "metric_label": "Chiffre d'affaires",
+      "comparison": "yoy",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "pnl_conso",
+      "metric_code": "PL14",
+      "metric_label": "Marge Brute",
+      "comparison": "yoy",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "opex_consolides",
+      "metric_code": "Opex1",
+      "metric_label": "Total Opex",
+      "comparison": "yoy",
+      "warning_pct": 8.0,
+      "critical_pct": 12.0,
+      "direction": "higher_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "opex_consolides",
+      "metric_code": "Opex3",
+      "metric_label": "Personnel",
+      "comparison": "yoy",
+      "warning_pct": 8.0,
+      "critical_pct": 15.0,
+      "direction": "higher_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "opex_consolides",
+      "metric_code": "Opex5",
+      "metric_label": "Appointements & Salaires",
+      "comparison": "yoy",
+      "warning_pct": 8.0,
+      "critical_pct": 12.0,
+      "direction": "higher_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "ca_mobile",
+      "metric_code": "CA1",
+      "metric_label": "CA Global Mobile",
+      "comparison": "yoy",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "ca_mobile",
+      "metric_code": "CA9",
+      "metric_label": "CA Sortant",
+      "comparison": "yoy",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "ca_mobile",
+      "metric_code": "CA10",
+      "metric_label": "Prépayé (yc commissions)",
+      "comparison": "vs_budget",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "parc_mobile",
+      "metric_code": "PARC1",
+      "metric_label": "Parc Total Mobile Actif",
+      "comparison": "yoy",
+      "warning_pct": -3.0,
+      "critical_pct": -7.0,
+      "direction": "lower_is_worse",
+      "unit": "abonnés"
+    },
+    {
+      "sheet": "parc_mobile",
+      "metric_code": "PARC7",
+      "metric_label": "Parc Mobile Money",
+      "comparison": "vs_budget",
+      "warning_pct": -10.0,
+      "critical_pct": -20.0,
+      "direction": "lower_is_worse",
+      "unit": "clients"
+    },
+    {
+      "sheet": "capex_consolides",
+      "metric_code": "CAP1",
+      "metric_label": "Total Capex",
+      "comparison": "vs_budget",
+      "warning_pct": 20.0,
+      "critical_pct": 40.0,
+      "direction": "higher_is_worse",
+      "unit": "M CFA"
+    },
+    {
+      "sheet": "marge_mobile",
+      "metric_code": "MB1",
+      "metric_label": "Total Revenu",
+      "comparison": "yoy",
+      "warning_pct": -5.0,
+      "critical_pct": -10.0,
+      "direction": "lower_is_worse",
+      "unit": "M CFA"
+    }
+  ],
+  "severity_labels": {
+    "ok": "OK",
+    "warning": "WARNING",
+    "critical": "CRITICAL"
+  },
+  "terminology": {
+    "reel": "Réel (Actual)",
+    "budget": "Budget",
+    "ecart_budget": "Écart vs Budget",
+    "n1_reel": "N-1 Réel (Prior Year)",
+    "evol_pct": "Évolution % YoY"
+  }
+}
