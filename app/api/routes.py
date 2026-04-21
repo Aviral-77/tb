@@ -1,8 +1,8 @@
 """
 FastAPI route definitions for the TBG AI Copilot.
 
-Endpoints
----------
+File-based endpoints (Excel upload)
+------------------------------------
 POST   /api/v1/sessions                      Upload one TBG Excel file, create session
 POST   /api/v1/sessions/compare              Upload two files for period comparison
 POST   /api/v1/sessions/{id}/chat            Chat with parsed data
@@ -11,6 +11,13 @@ GET    /api/v1/sessions/{id}/sheets          List available sheets
 GET    /api/v1/sessions/{id}/metrics/{sheet} List metrics for a sheet
 DELETE /api/v1/sessions/{id}                 Delete session
 GET    /api/v1/health                        Health check
+
+Database-backed endpoints (PostgreSQL)
+---------------------------------------
+POST   /api/v1/db/chat                       Chat directly against the Postgres DB
+GET    /api/v1/db/health                     Check DB connectivity
+GET    /api/v1/db/sheets                     List sheets available in the DB
+GET    /api/v1/db/metrics/{sheet}            List metrics for a sheet (from DB)
 """
 from __future__ import annotations
 
@@ -22,7 +29,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from app.agents.graph import evict_graph, run_agent
+from app.agents.graph import evict_graph, run_agent, run_db_agent
+from app.db.connection import execute as db_execute, ping as db_ping
 from app.models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -300,3 +308,97 @@ async def health():
         version=settings.APP_VERSION,
         active_sessions=len(_sessions),
     )
+
+
+# ===========================================================================
+#  DATABASE-BACKED ROUTES  /api/v1/db/*
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/db/chat
+# ---------------------------------------------------------------------------
+@router.post("/db/chat", response_model=ChatResponse)
+async def db_chat(request: ChatRequest):
+    """
+    Chat with the TBG AI Copilot backed by PostgreSQL.
+    No file upload needed — the agent queries the database directly.
+
+    Use conversation_id to maintain multi-turn history.
+    """
+    # Use a fixed "db" session so the graph is shared across all DB chats
+    # but each conversation_id gets its own thread in MemorySaver.
+    session_id = "db-global"
+    try:
+        response_text = await run_db_agent(
+            session_id=session_id,
+            message=request.message,
+            conversation_id=request.conversation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Agent error: {str(exc)}",
+        ) from exc
+
+    return ChatResponse(
+        response=response_text,
+        conversation_id=request.conversation_id,
+        session_id=session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/db/health
+# ---------------------------------------------------------------------------
+@router.get("/db/health")
+async def db_health():
+    """Check that the PostgreSQL database is reachable."""
+    import asyncio
+    reachable = await asyncio.to_thread(db_ping)
+    if not reachable:
+        raise HTTPException(
+            status_code=503,
+            detail="Database unreachable. Check DATABASE_URL and that the Postgres container is running.",
+        )
+    rows, _ = await asyncio.to_thread(
+        db_execute,
+        "SELECT COUNT(*) AS total_rows, COUNT(DISTINCT sheet) AS sheets FROM tbg_data",
+    )
+    return {"status": "ok", "database": "connected", **rows[0]}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/db/sheets
+# ---------------------------------------------------------------------------
+@router.get("/db/sheets")
+async def db_list_sheets():
+    """List all TBG sheets available in the database with period range."""
+    import asyncio
+    rows, _ = await asyncio.to_thread(db_execute, """
+        SELECT sheet,
+               COUNT(DISTINCT metric_key)  AS metrics,
+               MIN(period)::text           AS first_period,
+               MAX(period)::text           AS last_period
+        FROM   tbg_data
+        GROUP  BY sheet
+        ORDER  BY sheet
+    """)
+    return {"sheets": rows}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/db/metrics/{sheet_name}
+# ---------------------------------------------------------------------------
+@router.get("/db/metrics/{sheet_name}")
+async def db_list_metrics(sheet_name: str):
+    """List all metrics for a sheet directly from the database."""
+    import asyncio
+    rows, _ = await asyncio.to_thread(db_execute, """
+        SELECT metric_key, metric_code, metric_label
+        FROM   metric_definitions
+        WHERE  sheet = %s
+        ORDER  BY metric_key
+    """, (sheet_name,))
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Sheet '{sheet_name}' not found in DB.")
+    return {"sheet": sheet_name, "metrics": rows}
