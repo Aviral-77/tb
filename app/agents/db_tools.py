@@ -3,8 +3,8 @@ LangChain tools that query the TBG PostgreSQL database.
 
 Two layers:
   1. sql_query — lets the LLM write any SELECT statement for complex questions.
-  2. Structured helpers — reliable shortcuts for the 5 core scenarios that
-     avoid the LLM needing to know exact column names.
+  2. Schema tools — let the LLM discover tables, columns, and relationships.
+  3. Structured helpers — reliable shortcuts for the 5 core TBG scenarios.
 """
 from __future__ import annotations
 
@@ -13,6 +13,14 @@ import json
 from langchain_core.tools import tool
 
 from app.db.connection import execute
+from app.db.schema_inspector import (
+    build_schema_context,
+    get_columns,
+    get_foreign_keys,
+    get_tables,
+    get_views,
+    inspect_schema,
+)
 
 _MAX_ROWS = 100          # cap raw sql_query results
 _SEARCH_PATH = "tbg"    # already set at pool level, but kept as reminder
@@ -470,11 +478,132 @@ def compare_all_sheets(period1: str, period2: str, top_n: int = 25) -> str:
 
 
 # -----------------------------------------------------------------------
+# Schema discovery tools
+# -----------------------------------------------------------------------
+
+@tool
+def get_schema_overview() -> str:
+    """
+    Return a full description of every table and view in the database,
+    including column names, data types, primary keys, foreign-key
+    relationships, and approximate row counts.
+
+    Call this first when you are unsure which tables exist or how they
+    relate to each other before writing a SQL query.
+    """
+    try:
+        return build_schema_context()
+    except Exception as e:
+        return f"Error retrieving schema: {e}"
+
+
+@tool
+def describe_table(table_name: str) -> str:
+    """
+    Return detailed column and relationship information for a single table.
+
+    Args:
+        table_name: exact table name (case-sensitive), e.g. 'tbg_data'
+    """
+    try:
+        cols = get_columns(table_name)
+        fks  = get_foreign_keys(table_name)
+
+        if not cols:
+            all_tables = get_tables()
+            return (
+                f"Table '{table_name}' not found. "
+                f"Available tables: {', '.join(all_tables)}"
+            )
+
+        lines = [f"Table: {table_name}", ""]
+        lines.append("Columns:")
+        for c in cols:
+            pk_m   = " [PK]"       if c.is_pk   else ""
+            null_m = ""            if c.nullable else " NOT NULL"
+            def_m  = f" DEFAULT {c.default}" if c.default else ""
+            lines.append(f"  {c.name}: {c.data_type}{pk_m}{null_m}{def_m}")
+
+        if fks:
+            lines.append("")
+            lines.append("Foreign keys:")
+            for fk in fks:
+                lines.append(f"  {fk.column} → {fk.ref_table}.{fk.ref_column}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error describing table: {e}"
+
+
+@tool
+def list_all_tables() -> str:
+    """
+    List every table and view available in the database with a one-line
+    summary (column count and approximate row count).
+
+    Use this for a quick orientation before calling get_schema_overview
+    or describe_table.
+    """
+    try:
+        tables = inspect_schema()
+        views  = get_views()
+
+        lines = ["Tables:"]
+        for ti in tables:
+            n_cols = len(ti.columns)
+            rows_hint = f"~{ti.row_count_estimate:,} rows" if ti.row_count_estimate else "? rows"
+            lines.append(f"  {ti.name:<30} {n_cols} columns  {rows_hint}")
+
+        if views:
+            lines.append("")
+            lines.append("Views:")
+            for v in views:
+                lines.append(f"  {v}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing tables: {e}"
+
+
+@tool
+def get_sample_rows(table_name: str, limit: int = 5) -> str:
+    """
+    Return a few sample rows from a table so you can see real data shapes
+    and values before writing a query.
+
+    Args:
+        table_name: exact table name, e.g. 'tbg_data'
+        limit:      number of rows to return (default 5, max 20)
+    """
+    try:
+        safe_limit = min(max(1, limit), 20)
+        # table_name is not parameterisable in psycopg2 identifiers,
+        # so we validate it against the known table list first.
+        known = get_tables() + get_views()
+        if table_name not in known:
+            return (
+                f"Table '{table_name}' not found. "
+                f"Available: {', '.join(known)}"
+            )
+        rows, cols = execute(f'SELECT * FROM "{table_name}" LIMIT %s', (safe_limit,))
+        return _rows_to_text(rows, cols)
+    except Exception as e:
+        return f"Error fetching sample rows: {e}"
+
+
+# -----------------------------------------------------------------------
 # Factory — returns the full tool list for the DB agent
 # -----------------------------------------------------------------------
 def build_db_tools() -> list:
     return [
+        # Schema discovery — always available
+        get_schema_overview,
+        list_all_tables,
+        describe_table,
+        get_sample_rows,
+        # SQL execution
         sql_query,
+        # TBG-specific structured helpers
         list_sheets,
         list_metrics,
         query_metric,

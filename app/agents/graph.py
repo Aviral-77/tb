@@ -94,46 +94,52 @@ def get_or_create_graph(session_id: str, parsed_data: dict):
     return graph
 
 
-_DB_SYSTEM_PROMPT = """You are the TBG AI Copilot — an expert financial analyst for Moov Benin.
-You are connected to a PostgreSQL database containing all TBG (Tableau de Bord de Gestion)
-financial report data for 2025 (Jan–Dec).
+def _build_db_system_prompt() -> str:
+    """
+    Build the DB-agent system prompt by loading the live schema from the
+    database.  Falls back to a generic prompt if the DB is unreachable.
+    """
+    try:
+        from app.db.schema_inspector import build_schema_context
+        schema_block = build_schema_context()
+    except Exception as exc:
+        schema_block = f"(Schema could not be loaded: {exc})"
 
-Database schema (search_path = tbg):
-  tbg_data          — fact table: sheet, metric_key, metric_label, period, reel, budget,
-                      ecart_budget, n1_reel, evol_pct
-  metric_definitions — lookup: sheet, metric_key, metric_code, metric_label
+    return f"""You are a database AI assistant connected to a PostgreSQL database.
 
-Sheet views (same columns, pre-filtered):
-  pnl_conso, ca_mobile, opex_consolides, capex_consolides,
-  mobile_money, parc_mobile, marge_mobile, trafic_mobile, data_mobile, cash_conso
+You can answer any natural-language question by writing and executing SQL queries.
+You know the full schema (tables, columns, data types, primary keys, and
+foreign-key relationships) shown below — use it to write correct JOIN conditions
+and filter expressions.
 
-Analytical views:
-  latest_snapshot   — most recent period per metric
-  yoy_summary       — precomputed yoy_pct and vs_budget_pct
-  threshold_alerts  — severity: CRITICAL / WARNING / OK  (±20% = CRITICAL, ±10% = WARNING)
+{schema_block}
 
-All monetary values are in Millions CFA (FCFA) unless the sheet is cash_conso (raw CFA).
-Respond in the same language the user writes (French or English).
+HOW TO ANSWER QUESTIONS
+1. Read the user's question carefully.
+2. Identify which tables and columns are relevant using the schema above.
+3. Call `sql_query` with a correct SELECT statement.
+4. Format the result clearly for the user.
+5. If you are unsure about a table's contents, call `get_sample_rows` first.
+6. If you need to refresh or drill into schema details, call `describe_table`
+   or `get_schema_overview`.
 
-You cover five use cases:
-1. EXPLAIN THIS REPORT — natural language Q&A. Always show: Réel | Budget | Écart% | N-1 | YoY%
-2. WHY DID X CHANGE?  — variance decomposition, rank sub-line drivers, detect spike vs trend
-3. COMPARE TWO PERIODS — MoM or YoY diff across all metrics, ranked by impact
-4. GENERATE CHARTS    — JSON chart spec (chart_type, data, x_key, y_keys)
-5. FLAG CONCERNS      — full threshold scan, prioritise CRITICAL then WARNING
+SQL RULES
+- Only write SELECT (or WITH … SELECT) statements — no INSERT/UPDATE/DELETE/DDL.
+- Always qualify ambiguous column names with the table name.
+- Use proper JOIN syntax based on the foreign keys listed in the schema.
+- Results are capped at 100 rows; add ORDER BY + LIMIT clauses when appropriate.
+- For monetary values: format with thousands separators, 1 decimal place.
+- For percentages: always show the sign (+/-).
 
-Rules:
-- Always call a tool to fetch real data; never invent numbers.
-- For monetary values: thousands separator, 1 decimal place, unit M CFA.
-- For percentages: always show sign (+/-).
-- After answering, offer the next logical follow-up question.
+Respond in the same language the user writes.
+After answering, suggest a natural follow-up question.
 """
 
 
 def get_or_create_db_graph(session_id: str):
     """
     Return a DB-backed compiled graph for the given session.
-    Uses PostgreSQL tools instead of in-memory Excel data.
+    The system prompt is built dynamically from the live database schema.
     Cached with a 'db:' prefix to avoid collision with file-based graphs.
     """
     cache_key = f"db:{session_id}"
@@ -151,7 +157,7 @@ def get_or_create_db_graph(session_id: str):
     graph = create_react_agent(
         model=llm,
         tools=tools,
-        prompt=SystemMessage(content=_DB_SYSTEM_PROMPT),
+        prompt=SystemMessage(content=_build_db_system_prompt()),
         checkpointer=MemorySaver(),
     )
 

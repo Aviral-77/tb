@@ -31,6 +31,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.agents.graph import evict_graph, run_agent, run_db_agent
 from app.db.connection import execute as db_execute, ping as db_ping
+from app.db.schema_inspector import build_schema_context, inspect_schema, get_views
 from app.models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -402,3 +403,63 @@ async def db_list_metrics(sheet_name: str):
     if not rows:
         raise HTTPException(status_code=404, detail=f"Sheet '{sheet_name}' not found in DB.")
     return {"sheet": sheet_name, "metrics": rows}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/db/schema
+# ---------------------------------------------------------------------------
+@router.get("/db/schema")
+async def db_schema():
+    """
+    Return the full database schema: every table with its columns (name,
+    type, PK flag, nullability), foreign-key relationships, views, and
+    approximate row counts.
+    """
+    import asyncio
+
+    table_infos = await asyncio.to_thread(inspect_schema)
+    views = await asyncio.to_thread(get_views)
+
+    tables_out = []
+    for ti in table_infos:
+        tables_out.append({
+            "name": ti.name,
+            "schema": ti.schema,
+            "row_count_estimate": ti.row_count_estimate,
+            "columns": [
+                {
+                    "name": c.name,
+                    "data_type": c.data_type,
+                    "is_pk": c.is_pk,
+                    "nullable": c.nullable,
+                    "default": c.default,
+                }
+                for c in ti.columns
+            ],
+            "foreign_keys": [
+                {
+                    "column": fk.column,
+                    "ref_table": fk.ref_table,
+                    "ref_column": fk.ref_column,
+                }
+                for fk in ti.foreign_keys
+            ],
+        })
+
+    return {"tables": tables_out, "views": views}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/db/schema/text
+# ---------------------------------------------------------------------------
+@router.get("/db/schema/text", response_class=None)
+async def db_schema_text():
+    """
+    Return the schema as a plain-text, human-readable string — the same
+    text that is injected into the agent system prompt.
+    """
+    import asyncio
+    from fastapi.responses import PlainTextResponse
+
+    text = await asyncio.to_thread(build_schema_context)
+    return PlainTextResponse(content=text)
