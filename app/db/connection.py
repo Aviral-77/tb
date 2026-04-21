@@ -21,7 +21,7 @@ def get_pool() -> pg_pool.ThreadedConnectionPool:
             minconn=1,
             maxconn=10,
             dsn=settings.DATABASE_URL,
-            options="-c search_path=tbg,public",
+            options="-c search_path=digiwise_schema,public",
         )
     return _pool
 

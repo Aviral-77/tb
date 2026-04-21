@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "mistral"
 
     # PostgreSQL
-    DATABASE_URL: str = "postgresql://tbg:tbg_secret@localhost:5432/tbg"
+    DATABASE_URL: str = "postgresql://digiwise:digiwise_secret@localhost:5432/digiwise"
 
     # LangSmith
     LANGSMITH_API_KEY: str = ""

@@ -363,7 +363,10 @@ async def db_health():
         )
     rows, _ = await asyncio.to_thread(
         db_execute,
-        "SELECT COUNT(*) AS total_rows, COUNT(DISTINCT sheet) AS sheets FROM tbg_data",
+        """SELECT
+             (SELECT COUNT(*) FROM financial_metrics_data)  AS monthly_data_rows,
+             (SELECT COUNT(*) FROM financial_metric)        AS metrics,
+             (SELECT COUNT(*) FROM financial_categories)    AS categories""",
     )
     return {"status": "ok", "database": "connected", **rows[0]}
 
@@ -371,38 +374,48 @@ async def db_health():
 # ---------------------------------------------------------------------------
 # GET /api/v1/db/sheets
 # ---------------------------------------------------------------------------
-@router.get("/db/sheets")
-async def db_list_sheets():
-    """List all TBG sheets available in the database with period range."""
+@router.get("/db/financial-types")
+async def db_list_financial_types():
+    """List all financial categories and their types from the Digiwise database."""
     import asyncio
     rows, _ = await asyncio.to_thread(db_execute, """
-        SELECT sheet,
-               COUNT(DISTINCT metric_key)  AS metrics,
-               MIN(period)::text           AS first_period,
-               MAX(period)::text           AS last_period
-        FROM   tbg_data
-        GROUP  BY sheet
-        ORDER  BY sheet
+        SELECT fc.name  AS category,
+               ft.name  AS type,
+               ft.id    AS type_id,
+               COUNT(DISTINCT fm.id) AS metric_count
+        FROM   financial_categories fc
+        JOIN   financial_types ft    ON ft.financial_category_id = fc.id
+        LEFT JOIN financial_metric fm ON fm.financial_type_id = ft.id
+        GROUP  BY fc.name, ft.name, ft.id
+        ORDER  BY fc.name, ft.sequence_id
     """)
-    return {"sheets": rows}
+    return {"financial_types": rows}
 
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/db/metrics/{sheet_name}
 # ---------------------------------------------------------------------------
-@router.get("/db/metrics/{sheet_name}")
-async def db_list_metrics(sheet_name: str):
-    """List all metrics for a sheet directly from the database."""
+@router.get("/db/metrics/{financial_type_id}")
+async def db_list_metrics(financial_type_id: int):
+    """List all metrics and submetrics for a given financial_type_id."""
     import asyncio
     rows, _ = await asyncio.to_thread(db_execute, """
-        SELECT metric_key, metric_code, metric_label
-        FROM   metric_definitions
-        WHERE  sheet = %s
-        ORDER  BY metric_key
-    """, (sheet_name,))
+        SELECT fm.id        AS metric_id,
+               fm.name      AS metric_name,
+               fm.sequence_id,
+               COUNT(fs.id) AS submetric_count
+        FROM   financial_metric fm
+        LEFT JOIN financial_submetric fs ON fs.financial_metric_id = fm.id
+        WHERE  fm.financial_type_id = %s
+        GROUP  BY fm.id, fm.name, fm.sequence_id
+        ORDER  BY fm.sequence_id
+    """, (financial_type_id,))
     if not rows:
-        raise HTTPException(status_code=404, detail=f"Sheet '{sheet_name}' not found in DB.")
-    return {"sheet": sheet_name, "metrics": rows}
+        raise HTTPException(
+            status_code=404,
+            detail=f"No metrics found for financial_type_id={financial_type_id}."
+        )
+    return {"financial_type_id": financial_type_id, "metrics": rows}
 
 
 # ---------------------------------------------------------------------------

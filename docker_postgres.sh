@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================
-#  TBG Postgres — spin up a container and import tbg_data.sql
+#  Digiwise Postgres — spin up a container and import the dump
 #
 #  Usage:
 #    chmod +x docker_postgres.sh
@@ -12,13 +12,13 @@
 
 set -e
 
-CONTAINER="tbg-postgres"
-DB_NAME="tbg"
-DB_USER="tbg"
-DB_PASS="tbg_secret"
+CONTAINER="digiwise-postgres"
+DB_NAME="digiwise"
+DB_USER="digiwise"
+DB_PASS="digiwise_secret"
 DB_PORT="5432"          # host port — change if 5432 is already in use
-VOLUME="tbg-pgdata"
-SQL_FILE="$(dirname "$0")/tbg_data.sql"
+VOLUME="digiwise-pgdata"
+SQL_FILE="$(dirname "$0")/digiwise_db_20042026_000001.sql"
 
 # ---------------------------------------------------------------
 start_or_create() {
@@ -63,11 +63,13 @@ verify() {
   echo ""
   echo "→ Quick verification:"
   docker exec "${CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c \
-    "SET search_path = tbg, public;
-     SELECT sheet, COUNT(*) AS rows, MIN(period) AS first_period, MAX(period) AS last_period
-     FROM   tbg_data
-     GROUP  BY sheet
-     ORDER  BY sheet;"
+    "SET search_path = digiwise_schema, public;
+     SELECT
+       (SELECT COUNT(*) FROM financial_categories)   AS categories,
+       (SELECT COUNT(*) FROM financial_types)         AS types,
+       (SELECT COUNT(*) FROM financial_metric)        AS metrics,
+       (SELECT COUNT(*) FROM financial_submetric)     AS submetrics,
+       (SELECT COUNT(*) FROM financial_metrics_data)  AS monthly_data_rows;"
 }
 
 # ---------------------------------------------------------------
@@ -80,7 +82,7 @@ case "${CMD}" in
     import_sql
     verify
     echo ""
-    echo "✅  TBG database is up."
+    echo "✅  Digiwise database is up."
     echo ""
     echo "   Connection string:"
     echo "   postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/${DB_NAME}"
@@ -90,8 +92,7 @@ case "${CMD}" in
 
   connect)
     docker exec -it "${CONTAINER}" \
-      psql -U "${DB_USER}" -d "${DB_NAME}" -c "SET search_path = tbg, public;" \
-      || docker exec -it "${CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}"
+      psql -U "${DB_USER}" -d "${DB_NAME}"
     ;;
 
   stop)
