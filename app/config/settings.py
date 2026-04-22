@@ -3,9 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Ollama
+    # Ollama (local)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "mistral"
+    # Embedding model for schema RAG — defaults to OLLAMA_MODEL if empty.
+    # Pull a dedicated model for better quality: ollama pull nomic-embed-text
+    OLLAMA_EMBEDDING_MODEL: str = ""
 
     # PostgreSQL
     DATABASE_URL: str = "postgresql://digiwise:digiwise_secret@localhost:5432/digiwise"

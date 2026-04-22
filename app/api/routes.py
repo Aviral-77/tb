@@ -212,6 +212,7 @@ async def chat(session_id: str, request: ChatRequest):
             message=request.message,
             conversation_id=request.conversation_id,
         )
+        print(f"Agent response for session {session_id}:\n{response_text}\n")
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -465,7 +466,7 @@ async def db_schema():
 # ---------------------------------------------------------------------------
 # GET /api/v1/db/schema/text
 # ---------------------------------------------------------------------------
-@router.get("/db/schema/text", response_class=None)
+@router.get("/db/schema/text")
 async def db_schema_text():
     """
     Return the schema as a plain-text, human-readable string — the same
