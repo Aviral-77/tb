@@ -1,0 +1,605 @@
+# Human-written descriptions for every analytical table.
+# Each entry enriches the embedding text so llama3 can retrieve the right
+# table even for French financial queries where column names alone are opaque.
+#
+# Format:
+#   table_name:
+#     description: one-sentence plain-English/French summary
+#     aliases: comma-separated alternative names / French terms users might type
+
+# ── Core financial KPI tables ────────────────────────────────────────────────
+
+financial_metrics_data:
+  description: >
+    Monthly financial KPI data for Moov Benin — stores real_value, budget_value,
+    last_year_real_value, actual values per metric per date. THIS IS THE PRIMARY
+    TABLE for revenue, ARPU, EBITDA, OPEX, traffic, parc abonnés, and all TBG KPI
+    time series. Join via financial_types → financial_categories to get category
+    breakdowns. Categories: CA Mobile, Data Mobile, Mobile Money, Parc Mobile,
+    Capex Consolidés, Cash Conso, P&L conso, Opex Consolidés, Marge brute Mobile,
+    Trafic mobile, Indicateurs Mobile.
+  aliases: >
+    ARPU, revenue, recette, chiffre d affaires, CA, CA Mobile, CA Global,
+    KPI, indicateur, performance, budget, reel, realise, sortant, entrant,
+    voix, data, MoMo, recharge, abonnes, parc, trafic, EBITDA, marge,
+    resultats financiers, mensuel, repartition, breakdown, par categorie,
+    P&L, bilan, compte de resultat
+
+financial_annual_data:
+  description: >
+    Annual aggregated financial KPI values (real, budget, last-year) per metric.
+    Same structure as financial_metrics_data but one row per year per metric.
+  aliases: annuel, annee, year, annual, bilan annuel
+
+financial_cumulative_data:
+  description: >
+    Year-to-date cumulative financial KPI values (real, budget, last-year).
+    Use for cumul, YTD, cumulative totals per metric.
+  aliases: cumul, YTD, year-to-date, cumulatif, cumule
+
+financial_metric:
+  description: >
+    Lookup table listing all financial metrics (KPI names) such as ARPU sortant,
+    ARPU entrant, revenue voix, revenue data, parc abonnes, EBITDA, etc.
+    Join to financial_metrics_data on financial_metric_id.
+  aliases: KPI name, metric name, indicateur, libelle, nom metrique
+
+financial_submetric:
+  description: >
+    Sub-level breakdown of a financial metric — e.g. sub-lines of ARPU or
+    revenue categories. Join to financial_metric on financial_metric_id.
+  aliases: sous-metrique, sous-indicateur, sous-categorie
+
+financial_types:
+  description: >
+    Grouping of financial metrics into report types (e.g. P&L, CAPEX, OPEX,
+    Commercial). Each type belongs to a category. Use to filter metrics by
+    report section.
+  aliases: type financier, rapport, section, P&L, compte de resultat
+
+financial_categories:
+  description: >
+    Top-level groupings of financial report types — e.g. Revenue, Costs,
+    Commercial, Network. Parent of financial_types.
+  aliases: categorie financiere, domaine, rubrique
+
+# ── Cash flow ────────────────────────────────────────────────────────────────
+
+cashflow_data:
+  description: >
+    Treasury cash flow amounts (Jan–Dec monthly columns + yearly totals) per
+    cash flow section/category/subcategory. This is LIQUIDITY data (flux de
+    trésorerie), NOT operational revenue. Do NOT use this table for revenue,
+    ARPU, EBITDA, or KPI questions — use financial_metrics_data for those.
+    Entity_type distinguishes section vs category vs subcategory rows.
+  aliases: >
+    flux de tresorerie, tresorerie, cash flow, liquidite, flux net, net cash,
+    encaissement, decaissement, financement, investissement, CFFO
+
+realised_cashflow:
+  description: >
+    Top-level cash flow report containers (e.g. "Réalisé 2024"). Parent of
+    cashflow_sections. Use to identify which cashflow report version to query.
+  aliases: rapport tresorerie, cashflow report version
+
+cashflow_sections:
+  description: >
+    Sections within a realised cash flow report — e.g. Operating Activities,
+    Investing Activities, Financing Activities. Parent of cashflow_categories.
+  aliases: section tresorerie, activites operationnelles, activites investissement
+
+cashflow_categories:
+  description: >
+    Categories within a cash flow section — e.g. Collections, Payments to
+    suppliers. Parent of cashflow_subcategories.
+  aliases: categorie tresorerie, encaissements, decaissements
+
+cashflow_subcategories:
+  description: >
+    Granular line items within a cash flow category — e.g. specific payment
+    types or collection sources.
+  aliases: sous-categorie tresorerie, ligne de tresorerie
+
+# ── CAPEX ────────────────────────────────────────────────────────────────────
+
+capex_data:
+  description: >
+    Monthly CAPEX spend by project: equipment costs, services costs, and
+    additional costs per month/year. Join to capex_projects for project metadata.
+    Use for capital expenditure analysis, CAPEX vs budget, spend by project.
+  aliases: CAPEX, investissement, equipement, services, depenses capital, immobilisations
+
+capex_projects:
+  description: >
+    CAPEX project master list — supplier name, direction, project title,
+    contract number, and contract date. Join to capex_data for monthly spend.
+  aliases: projet CAPEX, fournisseur, contrat, direction, projet investissement
+
+tbg_capex_project_details:
+  description: >
+    Upload history for CAPEX project files — file name, upload date, status,
+    month/year. Operational metadata; not for spend analysis.
+  aliases: upload CAPEX, fichier CAPEX
+
+# ── Commissions ──────────────────────────────────────────────────────────────
+
+commission_enlevements:
+  description: >
+    Monthly commission amounts (enlevements) paid to each distributor:
+    Prodium, Linarcels, Easycom, Somac, D-Commercial, Aftel, Senaniminde.
+    Columns are distributor names; rows are month/year. Primary table for
+    distributor commission analysis, enlevement amounts, commission par distributeur.
+  aliases: >
+    enlevement, enlevements, commission distributeur, commission par reseau,
+    Prodium, Linarcels, Easycom, Somac, D-Commercial, Aftel, Senaniminde,
+    commission mensuel, ristourne enlevement
+
+distributor_ristournes:
+  description: >
+    Monthly ristourne (rebate) amounts paid to distributors: Prodium, Linarcels,
+    Easycom, Somac, D-Commercial, Aftel. Same distributor column layout as
+    commission_enlevements. Use for ristourne analysis.
+  aliases: ristourne, ristournes distributeur, rebate, remise distributeur
+
+commission_calculation_rules:
+  description: >
+    Commission rate rules: minimum and maximum sales threshold brackets with
+    corresponding commission_rate percentage. Joined to commission_calculation_types.
+  aliases: bareme commission, taux commission, seuil, tranche, calcul commission
+
+commission_calculation_types:
+  description: >
+    Lookup for commission calculation method names (e.g. progressive, fixed).
+    Parent of commission_calculation_rules.
+  aliases: type calcul commission, methode commission
+
+commission_types:
+  description: >
+    Commission type definitions (e.g. Airtime, MoMo) belonging to a group,
+    with references to input and calculation file types.
+  aliases: type commission, nature commission
+
+commission_subtypes:
+  description: >
+    Sub-types under a commission type with specific calculation field definitions
+    stored as JSONB.
+  aliases: sous-type commission
+
+commission_groups:
+  description: >
+    Top-level grouping of commission types — e.g. Distributor, Retailer.
+  aliases: groupe commission, categorie commission
+
+commission_files:
+  description: >
+    Uploaded commission input/calculation files: file path, type, group, month,
+    year. Used to trace which raw files fed a commission calculation run.
+  aliases: fichier commission, upload commission
+
+commission_file_types:
+  description: >
+    Lookup of allowed commission file type names (e.g. "Airtime Input").
+  aliases: type fichier commission
+
+commission_histories:
+  description: >
+    Audit log of commission calculation runs — who triggered them, which files
+    were uploaded, month/year, status, and errors.
+  aliases: historique commission, log commission, calcul commission historique
+
+commission_calculation_histories:
+  description: >
+    Field-level change history for commission calculation rules — old and new
+    values with username and timestamp.
+  aliases: historique modification commission, audit commission
+
+fixed_commissions_calculation:
+  description: >
+    Fixed (non-bracketed) commission rates by commission type and name.
+    Use when commission does not vary with sales volume.
+  aliases: commission fixe, taux fixe
+
+# ── Collapse / collapsible report sections ───────────────────────────────────
+
+collapse_monthly_data:
+  description: >
+    Monthly real, budget, last-year, and actual values for collapsible report
+    sections (non-financial KPIs such as HR, network quality). Entity_type
+    distinguishes collapse_types / categories / subcategories.
+  aliases: donnees mensuelle collapse, section collapsible, indicateur RH, qualite reseau
+
+collapse_annual_data:
+  description: >
+    Annual aggregated values for collapsible report sections.
+  aliases: annuel collapse, bilan annuel collapse
+
+collapse_cumul_data:
+  description: >
+    Year-to-date cumulative values for collapsible report sections.
+  aliases: cumul collapse, YTD collapse
+
+collapse_types:
+  description: >
+    Top-level collapsible report types (e.g. HR metrics, Quality of Service).
+    Parent of collapse_categories.
+  aliases: type collapse, type section rapport
+
+collapse_categories:
+  description: >
+    Categories within a collapse type — second level of collapsible report hierarchy.
+  aliases: categorie collapse
+
+collapse_subcategories:
+  description: >
+    Granular sub-items within a collapse category.
+  aliases: sous-categorie collapse
+
+collapsible_items:
+  description: >
+    Root items that group collapsible report sections (above collapse_types).
+  aliases: item collapse, rubrique collapse
+
+# ── Moov Money (MoMo) ────────────────────────────────────────────────────────
+
+moov_money_data:
+  description: >
+    Transaction-level Moov Money (mobile money) data: MSISDN, transaction type,
+    amount, date, and validation flags (unique transaction, 7-day follow-up).
+    Use for MoMo transaction volume, amount analysis, subscriber activity.
+  aliases: MoMo, Moov Money, mobile money, transactions MoMo, paiement mobile, transfert argent
+
+moov_money_reactivation_data:
+  description: >
+    Moov Money subscriber reactivation records by department/commune/district —
+    agent name, subscriber number, amount, and matching status.
+  aliases: reactivation MoMo, reactivation mobile money, agent MoMo
+
+moov_money_subscriber_details:
+  description: >
+    Aggregated Moov Money agent performance: OK/NOK transaction counts per agent.
+  aliases: agent MoMo, performance agent mobile money
+
+# ── Data/Voix auto-recharge ──────────────────────────────────────────────────
+
+data_voix_data:
+  description: >
+    Transaction-level data and voice recharge records: subscriber number,
+    point of sale, amount, date, and validation flags.
+  aliases: recharge data voix, data voix, auto-recharge, recharge
+
+data_voix_auto_rechargement_data:
+  description: >
+    Detailed auto-recharge records per subscriber with department, commune,
+    neighborhood, agent, deposit and activation amounts.
+  aliases: auto rechargement voix data, rechargement automatique
+
+data_voix_subscriber_details:
+  description: >
+    Aggregated data/voix agent performance: OK/NOK counts, total activation
+    and deposit amounts per agent.
+  aliases: agent recharge, performance agent voix data
+
+# ── Telecom plan metrics ─────────────────────────────────────────────────────
+
+telecom_metric:
+  description: >
+    Telecom KPI metric definitions linked to a prepaid plan — metric name and
+    sequence. Parent of telecom_metric_values.
+  aliases: metrique telecom, KPI telecom, plan metrique
+
+telecom_metric_values:
+  description: >
+    Monthly values per telecom KPI metric per prepaid plan. Use for plan-level
+    performance tracking month by month.
+  aliases: valeur metrique telecom, KPI plan, performance plan mensuelle
+
+prepaid_plan:
+  description: >
+    Prepaid plan definitions — plan name, type, and identifiers. Parent of
+    telecom_metric.
+  aliases: plan prepaye, offre prepayee, forfait, plan tarifaire
+
+# ── PAYGO ────────────────────────────────────────────────────────────────────
+
+paygo_data:
+  description: >
+    Monthly PAYGO (pay-as-you-go) revenue data: TTC (tax included) and HT
+    (ex-tax) amounts per date.
+  aliases: PAYGO, pay as you go, revenu PAYGO, TTC, HT
+
+# ── Pricing / valorization ───────────────────────────────────────────────────
+
+valorization_tariffs:
+  description: >
+    Current tariff schedules used for revenue valorization — tariff name,
+    type, and active status.
+  aliases: tarif, valorisation, tarification, grille tarifaire
+
+valorization_tariff_schedules:
+  description: >
+    Detail lines within a valorization tariff — time bands, volumes, rates.
+  aliases: grille valorisation, plage tarifaire, bande tarifaire
+
+valorization_tariff_history:
+  description: >
+    Historical changes to valorization tariffs — previous rates and effective dates.
+  aliases: historique tarif, evolution tarif
+
+# ── TVA / AIB ────────────────────────────────────────────────────────────────
+
+tva_aib_calculation:
+  description: >
+    TVA (VAT) and AIB (tax) rate table used in commission and revenue calculations.
+  aliases: TVA, AIB, taxe, taxe sur valeur ajoutee, impot
+
+# ── Promoteur primes ─────────────────────────────────────────────────────────
+
+primes_promoteur_nord:
+  description: >
+    Threshold table (min/max seuil) for promoteur prime eligibility in the
+    North region.
+  aliases: prime promoteur, prime nord, seuil promoteur, bonus promoteur
+
+primes_promoteur_calculation:
+  description: >
+    Detailed promoteur prime calculation rules: prime code, criteria, unit,
+    value per unit, and thresholds.
+  aliases: calcul prime promoteur, bareme prime, prime commerciale
+
+# ── Segment / voix ───────────────────────────────────────────────────────────
+
+voix_segment:
+  description: >
+    Voice segment definitions for traffic analysis — segment name, type.
+  aliases: segment voix, trafic voix, categorie trafic
+
+ratio_conso_segment:
+  description: >
+    Consumption ratio data per segment — use for segment-level usage analysis.
+  aliases: ratio consommation, consommation segment
+
+realisation_budget_segment:
+  description: >
+    Budget realisation data split by subscriber or traffic segment.
+  aliases: realisation budget, budget segment, ecart budget
+
+# ── Roaming ─────────────────────────────────────────────────────────────────
+
+roaming_comitie:
+  description: >
+    Roaming committee records — partner operators, agreement details.
+  aliases: roaming, itinerance, comite roaming, partenaire roaming
+
+roaming_comite_history:
+  description: >
+    Historical changes to roaming committee agreements.
+  aliases: historique roaming, evolution roaming
+
+roaming_prefix:
+  description: >
+    Roaming prefix lookup — partner operator prefix codes.
+  aliases: prefixe roaming, code operateur
+
+# ── Revenue raw / uploaded ────────────────────────────────────────────────────
+
+revenue_raw_data:
+  description: >
+    Raw revenue records before aggregation — source-level revenue entries.
+  aliases: donnees brutes revenu, revenue brut, revenu source
+
+revenue_metadata:
+  description: >
+    Metadata about revenue data uploads: source, period, status.
+  aliases: metadata revenu, source revenu, upload revenu
+
+revenue_uploaded_files:
+  description: >
+    Files uploaded for revenue data ingestion — file name, path, status.
+  aliases: fichier revenu, upload revenu
+
+# ── TBG formulas / calculations ──────────────────────────────────────────────
+
+tbg_formulas:
+  description: >
+    Formula definitions used to derive TBG KPI values from raw data — formula
+    type, account details, Sage integration flag.
+  aliases: formule TBG, calcul KPI, regle calcul
+
+tbg_calculation_fields:
+  description: >
+    Manual input values for TBG calculation fields per month/year and version.
+  aliases: champ calcul TBG, valeur saisie, input calcul
+
+tbg_calculation_category_fields:
+  description: >
+    Categories and labels for manual TBG calculation input fields.
+  aliases: categorie champ calcul, libelle champ
+
+tbg_alerts:
+  description: >
+    Data upload deadline alerts for TBG report files per month/year.
+  aliases: alerte TBG, deadline upload, rappel
+
+tbg_version:
+  description: >
+    Version tracking for TBG data uploads — version number, description,
+    active status.
+  aliases: version TBG, version donnees
+
+tbg_reel_status_history:
+  description: >
+    History of status changes for TBG realised data entries.
+  aliases: historique statut reel, statut TBG
+
+tbg_report_types:
+  description: >
+    Types of TBG reports (e.g. monthly, annual) with their identifiers.
+  aliases: type rapport TBG, rapport mensuel, rapport annuel
+
+tbg_report_request:
+  description: >
+    Report generation requests — who requested, which report type, period.
+  aliases: demande rapport, generation rapport
+
+tbg_formula_edit_history:
+  description: >
+    Audit trail of formula edits — who changed what, when.
+  aliases: historique formule, audit formule
+
+# ── Data lineage ─────────────────────────────────────────────────────────────
+
+data_lineage_alerts:
+  description: >
+    Alerts generated by the data lineage monitoring pipeline — severity, message.
+  aliases: alerte lineage, alerte pipeline
+
+data_lineage_configs:
+  description: >
+    Configuration entries for data lineage monitoring — source, destination.
+  aliases: config lineage
+
+data_lineage_edges:
+  description: >
+    Graph edges representing data flow between pipeline stages.
+  aliases: edge lineage, flux donnees lineage
+
+data_lineage_events:
+  description: >
+    Events captured during data lineage pipeline execution.
+  aliases: evenement lineage, log pipeline
+
+data_lineage_stage:
+  description: >
+    Pipeline stage definitions in the data lineage graph.
+  aliases: etape lineage, stage pipeline
+
+# ── Dormant / cormant data ────────────────────────────────────────────────────
+
+data_dormant_metics:
+  description: >
+    Dormant subscriber metrics — counts of inactive subscribers per period.
+  aliases: abonnes dormants, inactifs, dormant
+
+data_dormant_metadata:
+  description: >
+    Metadata for dormant subscriber data uploads.
+  aliases: metadata dormants
+
+data_dormant_upload_files:
+  description: >
+    Uploaded files for dormant subscriber data.
+  aliases: fichier dormants
+
+data_cormant_metics:
+  description: >
+    Cormant subscriber metrics (variant of dormant segmentation).
+  aliases: abonnes cormant, cormant
+
+data_cormat_upload_files:
+  description: >
+    Uploaded files for cormant data.
+  aliases: fichier cormant
+
+# ── Lineage Benin / Mali ──────────────────────────────────────────────────────
+
+lineage_benin:
+  description: >
+    Benin-specific data lineage tracking records.
+  aliases: lineage benin
+
+lineage_mali:
+  description: >
+    Mali-specific data lineage tracking records.
+  aliases: lineage mali
+
+base_lineage_benin:
+  description: >
+    Base lineage records for Benin data pipeline.
+  aliases: base lineage benin
+
+base_lineage_mali:
+  description: >
+    Base lineage records for Mali data pipeline.
+  aliases: base lineage mali
+
+# ── Misc analytical ──────────────────────────────────────────────────────────
+
+monthly_evolution:
+  description: >
+    Month-over-month evolution/growth metrics — percentage changes per KPI.
+  aliases: evolution mensuelle, croissance mensuelle, variation mensuelle
+
+weekly_evolution:
+  description: >
+    Week-over-week evolution metrics.
+  aliases: evolution hebdomadaire
+
+yearly_evolution:
+  description: >
+    Year-over-year evolution metrics.
+  aliases: evolution annuelle, croissance annuelle
+
+moyenne_jour:
+  description: >
+    Daily average metrics per period — useful for per-day KPI analysis.
+  aliases: moyenne journaliere, moyenne par jour, daily average
+
+segment_date:
+  description: >
+    Date segments for subscriber or traffic segmentation analysis.
+  aliases: segment date, periode segment
+
+localization_reference_history:
+  description: >
+    History of localization reference data changes.
+  aliases: historique reference localisation
+
+prefix_history:
+  description: >
+    History of subscriber number prefix assignments.
+  aliases: historique prefixe, prefixe numero
+
+resource_type:
+  description: >
+    Resource type definitions (e.g. human resource categories).
+  aliases: type ressource, categorie ressource
+
+resource_subtype:
+  description: >
+    Sub-type definitions under resource types.
+  aliases: sous-type ressource
+
+resource_monthly_values:
+  description: >
+    Monthly values for resources (e.g. headcount, FTEs) per type and subtype.
+  aliases: valeur mensuelle ressource, effectif, headcount, FTE
+
+standard_impact:
+  description: >
+    Standard impact definitions — metric name, threshold, description.
+  aliases: impact standard, seuil impact
+
+standard_impact_monthly_values:
+  description: >
+    Monthly measured values against standard impact thresholds.
+  aliases: valeur impact mensuelle
+
+feuil1_metrics:
+  description: >
+    Raw metrics imported from a sheet (Feuil1) — legacy import table.
+  aliases: feuil1, metriques importees
+
+sage_yexptdb:
+  description: >
+    Raw Sage ERP expenditure data used for budget/OPEX reconciliation.
+  aliases: Sage, ERP, depenses Sage, OPEX Sage
+
+upload_data:
+  description: >
+    Generic upload tracking table for data ingestion jobs.
+  aliases: upload, ingestion donnees
+
+component_file_upload_rule_sheets:
+  description: >
+    Rules defining which file types map to which upload component sheets.
+  aliases: regles upload, composant upload

@@ -65,11 +65,17 @@ def _clip(text: str, n: int = 140) -> str:
 # ---------------------------------------------------------------------------
 
 def _make_llm() -> ChatOllama:
-    return ChatOllama(
+    llm = ChatOllama(
         model=settings.OLLAMA_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0,
     )
+    log.debug(
+        "LLM initialized: model=%s, base_url=%s",
+        settings.OLLAMA_MODEL,
+        settings.OLLAMA_BASE_URL,
+    )
+    return llm
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +151,7 @@ class DbPipelineState(TypedDict):
     rows:             list[dict]
     cols:             list[str]
     answer:           str
+    chart_specs:      list[dict]
 
 
 _MAX_RETRIES = 3      # writer attempt + up to 3 critic repairs = 4 total SQL generations
@@ -221,7 +228,7 @@ def retrieve_schema(state: DbPipelineState) -> dict:
 # ---------------------------------------------------------------------------
 
 _WRITER_SYSTEM = """\
-You are a PostgreSQL 15 expert connected to a financial database.
+You are a PostgreSQL 15 expert connected to a financial database for Moov Benin.
 
 ╔══ OUTPUT FORMAT — STRICTLY ENFORCED ══╗
 ║  Output ONLY a raw SQL SELECT statement  ║
@@ -231,27 +238,116 @@ You are a PostgreSQL 15 expert connected to a financial database.
 ║  Any text outside the SQL = REJECTED       ║
 ╚═══════════════════════════════════════════╝
 
-POSTGRESQL DATE RULES — read carefully before writing any date filter:
-  • EXTRACT()/DATE_TRUNC() work ONLY on date/timestamp/timestamptz columns.
-  • If the schema shows a column as type "integer" and named "year" or "month",
-    it already IS an integer — compare directly:
-      WHERE year = 2024          ← CORRECT for integer column
-      WHERE month = 3            ← CORRECT for integer column
-      EXTRACT(YEAR FROM year)    ← WRONG — year is not a date
-  • Only use EXTRACT() when the column type is date/timestamp:
-      WHERE EXTRACT(YEAR FROM date_col) = 2024   ← CORRECT for date column
+COLUMN ALIAS RULE (mandatory):
+  Every computed expression MUST have an AS alias so column headers are readable.
+  ✓  SUM(jan + feb + mar) AS q1_total
+  ✓  ROUND(real_value / budget_value * 100, 2) AS pct_budget
+  ✓  prodium + linarcels + easycom AS total_commission
+  ✗  SUM(jan + feb)          ← produces ugly "?column?" header — FORBIDDEN
+
+CRITICAL — TWO TABLE STRUCTURES EXIST:
+
+DENORMALIZED TABLES (months stored as separate columns):
+  • cashflow_data: columns are [year, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec, current_year_total]
+    ✓ Query: SELECT SUM(jan)+SUM(feb)+SUM(mar)... FROM cashflow_data WHERE year=2024
+    ✗ Do NOT use: EXTRACT(), date column, month column (they don't exist)
+
+  • commission_enlevements: DISTRIBUTORS ARE COLUMNS, NOT ROWS.
+    Columns: [year, month, prodium, linarcels, easycom, somac, d_commercial, aftel, senaniminde]
+    ✗ WRONG — causes "must appear in GROUP BY" error:
+        SELECT distributor, SUM(amount) FROM commission_enlevements GROUP BY distributor
+    ✓ CORRECT — use UNION ALL to unpivot distributors into rows, then rank:
+        WITH totals AS (
+            SELECT 'Prodium'      AS distributor, SUM(prodium)      AS total FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'Linarcels',                   SUM(linarcels)             FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'Easycom',                     SUM(easycom)               FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'Somac',                       SUM(somac)                 FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'D-Commercial',                SUM(d_commercial)          FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'Aftel',                       SUM(aftel)                 FROM commission_enlevements WHERE year = 2025
+            UNION ALL
+            SELECT 'Senaniminde',                 SUM(senaniminde)           FROM commission_enlevements WHERE year = 2025
+        )
+        SELECT distributor, total AS total_commission
+        FROM totals
+        WHERE total IS NOT NULL
+        ORDER BY total DESC
+        LIMIT 5;
+
+NORMALIZED TABLES (date column):
+  • financial_metrics_data: has [date, real_value, budget_value, financial_metric_id, financial_submetric_id]
+    ✓ Query: WHERE EXTRACT(YEAR FROM date)=2025 AND real_value IS NOT NULL
+  • capex_data: has [year, month, equipment, services, additional_costs, capex_projects_id]
+    ✓ Query: WHERE year=2025 AND month=9, GROUP BY month
+
+BEFORE WRITING SQL:
+  1. Identify which table(s) you'll query
+  2. Check if it's denormalized (monthly columns) or normalized (date column)
+  3. Use appropriate filter syntax:
+     - Denormalized: WHERE year = 2024 (direct comparison)
+     - Normalized: WHERE EXTRACT(YEAR FROM date) = 2024 (date extraction)
+
+POSTGRESQL RULES:
   ✗ MONTH() YEAR() ISNULL() IFNULL()   ← MySQL functions — FORBIDDEN
-  ✗ backtick quoting                    ← use double-quotes if needed
+  ✗ backtick quoting                    ← use double-quotes only
   ✗ CONCAT() with 2 args                ← use || operator
+  ✓ NULLIF(col, 0) to prevent division by zero
+  ✓ COALESCE(col, 0) for NULL handling
 
 NULL HANDLING:
-  • When aggregating (SUM, AVG, etc.) always add: WHERE value_col IS NOT NULL
-  • When returning a single value that might be NULL, use COALESCE(col, 0) or filter with IS NOT NULL.
-  • Never return a bare NULL as the only result — if the filter produces no rows, the user needs a different query.
+  • Aggregations: Always add WHERE value IS NOT NULL to avoid NULL results
+  • Variance: Use NULLIF(ABS(budget), 0) to guard against division by zero
+  • Comparisons: Always check both real_value and budget_value are NOT NULL
 
-USE ONLY the tables and columns listed in the schema below.
+REVENUE / KPI HIERARCHY — use this for ANY question about revenue, ARPU, EBITDA, budgets, categories:
+  financial_categories   ← top-level groupings (CA Mobile, Data Mobile, Mobile Money, Capex, etc.)
+       └── financial_types     ← report sections within each category
+             └── financial_metric   ← individual KPI metric names
+                   └── financial_metrics_data   ← monthly values: real_value, budget_value, last_year_real_value
+
+  Categories in the DB: 'CA Mobile', 'Data Mobile', 'Mobile Money', 'Parc Mobile',
+                        'Capex Consolidés', 'Cash Conso', 'P&L conso', 'Opex Consolidés',
+                        'Marge brute Mobile', 'Trafic mobile', 'Indicateurs Mobile'
+
+  ✓ Revenue by category 2024:
+    SELECT fc.name AS category, SUM(fmd.real_value) AS total
+    FROM financial_metrics_data fmd
+    JOIN financial_types ft ON ft.id = fmd.financial_type_id
+    JOIN financial_categories fc ON fc.id = ft.financial_category_id
+    WHERE EXTRACT(YEAR FROM fmd.date) = 2024 AND fmd.real_value IS NOT NULL
+    GROUP BY fc.name ORDER BY total DESC;
+
+  ✗ NEVER use cashflow_data for revenue questions — cashflow_data stores treasury cash flow,
+    NOT operational revenue. "Category" in a revenue question means financial_categories, not cashflow_categories.
+
+CAPEX HIERARCHY — for questions about CAPEX suppliers, projects, spend by month:
+  capex_projects: id [PK], supplier_name, direction_name, project_title, contract_no
+  capex_data:     id [PK], capex_projects_id (FK → capex_projects.id), month, year,
+                  equipment, services, additional_costs
+
+  ✓ Correct query — suppliers by CAPEX spend for a given month:
+    SELECT cp.supplier_name,
+           SUM(cd.equipment + cd.services + cd.additional_costs) AS total_spend
+    FROM capex_data cd
+    JOIN capex_projects cp ON cp.id = cd.capex_projects_id
+    WHERE cd.year = 2025 AND cd.month = 9
+      AND (cd.equipment + cd.services + cd.additional_costs) > 0
+    GROUP BY cp.supplier_name
+    ORDER BY total_spend DESC;
+
+  ✗ NEVER reference capex_projects columns without the JOIN above.
+
+CASH FLOW HIERARCHY — use ONLY for questions about flux de trésorerie / treasury / liquidity:
+  realised_cashflow → cashflow_sections → cashflow_categories → cashflow_subcategories
+  Data in cashflow_data: [year, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec]
+  Each row's entity_type is 'section', 'category', or 'subcategory'.
+
+USE ONLY the tables and columns listed below.
 Do NOT invent table names or column names.
-Check each column's type in the schema before writing a filter on it.
 
 {schema}
 """
@@ -432,7 +528,7 @@ def validate_semantic(state: DbPipelineState) -> dict:
 # ---------------------------------------------------------------------------
 
 _CRITIC_SYSTEM = """\
-You are a PostgreSQL SQL repair agent.
+You are a PostgreSQL SQL repair agent. The database contains financial data for Moov Benin.
 
 ╔══ OUTPUT FORMAT — STRICTLY ENFORCED ══╗
 ║  Output ONLY the corrected SQL SELECT   ║
@@ -441,25 +537,72 @@ You are a PostgreSQL SQL repair agent.
 ║  • ZERO explanations, ZERO markdown     ║
 ╚═════════════════════════════════════════╝
 
-POSTGRESQL DATE RULES — this is the most common source of errors:
-  • EXTRACT()/DATE_TRUNC() work ONLY on date/timestamp columns.
-  • If the schema shows a column typed "integer" named "year" or "month",
-    compare it directly — it is NOT a date:
-      WHERE year = 2024    ← correct for integer column
-      WHERE month = 3      ← correct for integer column
-  • Use EXTRACT() only on actual date/timestamp columns.
-  ✗ MONTH() YEAR() ISNULL() IFNULL()   ← MySQL — FORBIDDEN
-  Use ONLY columns and tables listed in the schema. Allowed tables: {allowed_tables}
+⚠️  ABSOLUTE RULE — COLUMN NAMES:
+If error says "column X does not exist", then X DOES NOT EXIST. Do NOT invent names.
+Use ONLY the exact column names from VERIFIED COLUMNS below.
 
-SCHEMA (ground truth — use ONLY these names):
+KEY INSIGHT — TWO SCHEMA TYPES:
+
+DENORMALIZED (months as columns):
+  • cashflow_data: [year, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec, current_year_total]
+    ✓ Query: SELECT SUM(jan), SUM(feb), SUM(mar), ... FROM cashflow_data WHERE year = 2024
+    ✗ Do NOT use: date_column, month, EXTRACT(MONTH FROM ...), month column reference
+  
+  • commission_enlevements: [year, month, prodium, linarcels, somac, easycom, d_commercial, aftel, senaniminde]
+    ✓ Query: SELECT prodium, linarcels, somac, ... FROM commission_enlevements WHERE year = 2025
+
+NORMALIZED (date column):
+  • financial_metrics_data: has date column → use WHERE EXTRACT(YEAR FROM date) = 2025
+  • capex_data: has year and month columns → use WHERE year = 2025 AND month = 9
+
+REPAIR PROCESS:
+1. Look at VERIFIED COLUMNS
+2. Identify if table is denormalized or normalized
+3. If denormalized and error mentions non-existent columns → use the actual month columns (jan, feb, mar, ...)
+4. If normalized and error is "can't use EXTRACT on integer" → use direct column comparison
+
+STEP 1 — READ VERIFIED COLUMNS FIRST:
+{column_facts}
+
+STEP 2 — TABLE CONSTRAINT:
+  Query ONLY these tables:
+    {tables_in_sql}
+
+STEP 3 — ERROR DIAGNOSIS:
+  • "column X does not exist" → X is wrong. Use exact name from VERIFIED COLUMNS.
+  • "relation X does not exist" → X is not a valid table.
+  • "function pg_catalog.extract(unknown, integer)" → EXTRACT() on integer column. Use: WHERE year = 2024
+  • "must appear in GROUP BY or aggregate" on commission_enlevements →
+      Distributors are COLUMNS not rows. Fix by using UNION ALL unpivot:
+        WITH totals AS (
+            SELECT 'Prodium' AS distributor, SUM(prodium) AS total FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'Linarcels', SUM(linarcels) FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'Easycom',   SUM(easycom)   FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'Somac',     SUM(somac)     FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'D-Commercial', SUM(d_commercial) FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'Aftel',     SUM(aftel)     FROM commission_enlevements WHERE year = 2025
+            UNION ALL SELECT 'Senaniminde', SUM(senaniminde) FROM commission_enlevements WHERE year = 2025
+        )
+        SELECT distributor, total AS total_commission FROM totals
+        WHERE total IS NOT NULL ORDER BY total DESC LIMIT 5;
+  • Missing columns in denormalized table → use the actual month/distributor columns shown in VERIFIED COLUMNS
+
+STEP 4 — POSTGRESQL RULES:
+  • EXTRACT() works ONLY on date/timestamp columns, NOT integers or text
+  • Integer columns: WHERE year = 2024 (NOT EXTRACT(YEAR FROM year))
+  • ✗ MONTH() YEAR() ISNULL() IFNULL() ← MySQL syntax — FORBIDDEN
+  • ✓ NULLIF(amount, 0) to prevent division by zero
+  • ✓ COALESCE(col, 0) for NULL defaults
+
+Allowed tables: {allowed_tables}
+
+SCHEMA (VERIFIED COLUMNS takes priority if there's conflict):
 {schema}
 """
 
 _CRITIC_USER = """\
 USER QUESTION:
 {question}
-
-{column_facts}
 
 REPAIR HISTORY (all previous attempts, oldest first):
 {history}
@@ -494,14 +637,19 @@ def _make_critique_sql_node(llm: ChatOllama):
         history  = prev + [entry]
 
         column_facts = state.get("column_facts", "")
+        facts_block    = column_facts if column_facts else (
+            "VERIFIED COLUMNS: not yet available — use column names from SCHEMA below."
+        )
+        tables_in_sql  = sorted(_referenced_tables(sql)) or ["(no tables parsed)"]
 
         system_msg = _CRITIC_SYSTEM.format(
+            column_facts=facts_block,
+            tables_in_sql=", ".join(tables_in_sql),
             schema=schema,
             allowed_tables=", ".join(sorted(allowed)),
         )
         user_msg = _CRITIC_USER.format(
             question=question,
-            column_facts=column_facts or "(column facts unavailable — rely on schema above)",
             history="\n".join(history),
             sql=sql,
             error=error,
@@ -619,39 +767,178 @@ def execute_sql(state: DbPipelineState) -> dict:
 # ---------------------------------------------------------------------------
 
 _FMT_SYSTEM = """\
-You are a data analyst presenting query results to a business user.
+You are a senior financial analyst presenting database query results to a Moov Benin executive.
 
-Your task:
-1. Write 1–2 sentences summarising the key insight from the data.
-2. Reproduce the provided table exactly — do not reformat or omit rows.
-3. End with one short follow-up question.
+CURRENCY: All monetary values are in FCFA (West African CFA franc). NEVER write $ or USD.
+NUMBERS:  Always use thousands separators — write 2,998,413 not 2998413.
+
+OUTPUT FORMAT — use EXACTLY this four-section structure:
+
+**Insight**: [1–2 sentences: the key business finding. Include the actual number(s) with thousands separators and FCFA where monetary.]
+
+[Reproduce the data table exactly as provided — do not reformat or omit rows]
+
+**Source**: [list the table(s) queried] | [period covered if visible] | [N row(s) returned]
+
+**Follow-up**: [One specific, actionable question the executive should ask next about this metric — not generic]
 
 STRICT RULES:
-- NEVER output SQL, code, or technical details of any kind.
+- NEVER output SQL, column types, or any technical detail.
 - NEVER invent numbers not present in the results.
-- If a cell shows "(null)", it means no data is recorded for that field — say
-  "no data available" or skip that field. NEVER say "None" or "null" literally.
-- Respond in the same language the user used.
-- Do not apologise or start with "I'm sorry".
+- If a cell shows "(null)" → write "no data" instead. NEVER write "None" or "null".
+- If a column is named "?column?" → label it "Value" in your narrative.
+- Do NOT start with "I'm sorry", "Based on", or "The query returned".
+- Respond in the same language as the user question.
 """
 
 
 def _cell(value) -> str:
-    """Render a single cell value — None becomes the explicit string (null)."""
     return "(null)" if value is None else str(value)
 
 
+# ---------------------------------------------------------------------------
+# Chart spec builder — pure Python, no LLM
+# ---------------------------------------------------------------------------
+
+_TIME_COL_NAMES = {
+    "month", "year", "date", "period", "quarter",
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec",
+}
+
+_RANK_KEYWORDS = {
+    "top", "rank", "best", "worst", "highest", "lowest",
+    "distributor", "supplier", "fournisseur", "category", "categorie",
+}
+
+_TREND_KEYWORDS = {
+    "trend", "monthly", "evolution", "mensuel", "par mois",
+    "over time", "breakdown", "month by month",
+}
+
+_PALETTE = ["#6c63ff", "#4ecca3", "#f6ad55", "#fc8181", "#63b3ed", "#f687b3"]
+
+
+def _to_float(v) -> float | None:
+    from decimal import Decimal
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_chart_spec(cols: list[str], rows: list[dict], question: str) -> dict | None:
+    """Infer a chart spec from the result shape and question keywords. Returns None if not chartable."""
+    if len(rows) < 2 or len(cols) < 2:
+        return None
+
+    # Classify columns
+    numeric_cols: list[str] = []
+    label_cols:   list[str] = []
+    for c in cols:
+        samples = [r.get(c) for r in rows[:10] if r.get(c) is not None]
+        if samples and all(_to_float(v) is not None for v in samples):
+            numeric_cols.append(c)
+        else:
+            label_cols.append(c)
+
+    if not numeric_cols:
+        return None
+
+    # Pick x-axis: prefer time column, then first label col
+    time_col = next((c for c in cols if c.lower() in _TIME_COL_NAMES), None)
+    x_key    = time_col or (label_cols[0] if label_cols else None)
+    if x_key is None:
+        return None
+
+    y_keys = [c for c in numeric_cols if c != x_key][:4]
+    if not y_keys:
+        # All columns are numeric — use row index as x
+        y_keys = numeric_cols[:4]
+        x_key  = cols[0]
+
+    # Detect chart type
+    q = question.lower()
+    is_time  = time_col in ("month", "date", "period") or any(k in q for k in _TREND_KEYWORDS)
+    is_rank  = any(k in q for k in _RANK_KEYWORDS) and len(rows) <= 20
+    is_multi = len(y_keys) > 1
+
+    if is_time:
+        chart_type = "line"
+    elif is_rank:
+        chart_type = "bar_horizontal"
+    else:
+        chart_type = "bar"
+
+    # Serialize — convert Decimal/None to float/null
+    data = []
+    for r in rows[:60]:
+        entry: dict = {}
+        entry[x_key] = str(r.get(x_key) or "")
+        for y in y_keys:
+            v = _to_float(r.get(y))
+            entry[y] = v  # None serialises to null in JSON
+        data.append(entry)
+
+    return {
+        "chart_type": chart_type,
+        "title":      question[:80],
+        "data":       data,
+        "x_key":      x_key,
+        "y_keys":     y_keys,
+        "colors":     _PALETTE[: len(y_keys)],
+        "unit":       "FCFA",
+    }
+
+
+def _fmt_number(s: str) -> str:
+    """Add thousands separators to bare numeric strings."""
+    try:
+        f = float(s)
+        if f == int(f):
+            return f"{int(f):,}"
+        return f"{f:,.2f}"
+    except (ValueError, TypeError):
+        return s
+
+
 def _build_ascii_table(rows: list[dict], cols: list[str]) -> str:
+    # Rename ugly PostgreSQL default headers
+    display_cols = ["value" if c in ("?column?", "?column?") else c for c in cols]
+    col_rename   = dict(zip(cols, display_cols))
+
     sample = rows[:100]
-    col_w  = {c: max(len(c), max((len(_cell(r.get(c))) for r in sample), default=0)) for c in cols}
-    header = " | ".join(c.ljust(col_w[c]) for c in cols)
-    sep    = "-+-".join("-" * col_w[c] for c in cols)
+    col_w  = {
+        dc: max(len(dc), max((len(_fmt_number(_cell(r.get(c)))) for r in sample), default=0))
+        for c, dc in col_rename.items()
+    }
+    header = " | ".join(dc.ljust(col_w[dc]) for dc in display_cols)
+    sep    = "-+-".join("-" * col_w[dc] for dc in display_cols)
     lines  = [header, sep]
     for r in sample:
-        lines.append(" | ".join(_cell(r.get(c)).ljust(col_w[c]) for c in cols))
+        lines.append(" | ".join(
+            _fmt_number(_cell(r.get(c))).ljust(col_w[dc])
+            for c, dc in col_rename.items()
+        ))
     if len(rows) > 100:
         lines.append(f"... ({len(rows) - 100} more rows not shown)")
     return "\n".join(lines)
+
+
+def _source_context(sql: str, rows: list[dict]) -> str:
+    """Derive a short validation line from the SQL and result size."""
+    tables = sorted(_referenced_tables(sql))
+    table_str = ", ".join(tables) if tables else "database"
+    n = len(rows)
+    row_str = f"{n} row" if n == 1 else f"{n} rows"
+
+    # Try to extract year/period filter from SQL text for context
+    year_m = re.search(r"\b(20\d{2})\b", sql)
+    period = f" for {year_m.group(1)}" if year_m else ""
+
+    return f"{table_str}{period} | {row_str} returned"
 
 
 def _make_format_answer_node(llm: ChatOllama):
@@ -661,12 +948,11 @@ def _make_format_answer_node(llm: ChatOllama):
         rows      = state.get("rows", [])
         cols      = state.get("cols", [])
         question  = state["question"]
+        sql       = state.get("sql", "")
 
-        # ── Validation exhausted (retries used up) ──────────────────────
+        # ── Validation exhausted ─────────────────────────────────────────
         remaining = _any_validation_error(state)
         if remaining and not rows:
-            history = state.get("error_history", [])
-            last    = history[-1] if history else remaining
             log.warning("format_answer: SQL_GENERATION_FAILED after %d retries", retry)
             return {"answer": (
                 f"SQL_GENERATION_FAILED: I was unable to generate a valid query "
@@ -674,7 +960,7 @@ def _make_format_answer_node(llm: ChatOllama):
                 f"Last error: {remaining[:300]}"
             )}
 
-        # ── Runtime execution error (no LLM — prevents SQL leakage) ─────
+        # ── Runtime execution error ──────────────────────────────────────
         if sql_error:
             reason = sql_error.split("\n")[0][:250]
             log.warning("format_answer: execution error → %s", reason)
@@ -688,19 +974,29 @@ def _make_format_answer_node(llm: ChatOllama):
                 "Try broadening your filters or checking the date range."
             )}
 
-        # ── Success path: narrate with LLM ──────────────────────────────
-        table = _build_ascii_table(rows, cols)
+        # ── Build table, chart spec, and source context ──────────────────
+        table      = _build_ascii_table(rows, cols)
+        source     = _source_context(sql, rows)
+        chart_spec = _build_chart_spec(cols, rows, question)
+        if chart_spec:
+            log.info("format_answer: chart_type=%s x=%s y=%s",
+                     chart_spec["chart_type"], chart_spec["x_key"], chart_spec["y_keys"])
+
         log.info("format_answer: narrating %d rows via LLM", len(rows))
         t0 = time.monotonic()
         response = llm.invoke([
             SystemMessage(content=_FMT_SYSTEM),
             HumanMessage(content=(
                 f"User question: {question}\n\n"
-                f"Result ({len(rows)} rows):\n{table}"
+                f"Query source (for the **Source** line): {source}\n\n"
+                f"Result ({len(rows)} row(s)):\n{table}"
             )),
         ])
         log.info("format_answer LLM done in %.1fs", time.monotonic() - t0)
-        return {"answer": response.content}
+        return {
+            "answer":      response.content,
+            "chart_specs": [chart_spec] if chart_spec else [],
+        }
 
     return format_answer
 
@@ -809,16 +1105,18 @@ async def run_db_agent(
         "rows":             [],
         "cols":             [],
         "answer":           "",
+        "chart_specs":      [],
     }
 
     t0     = time.monotonic()
     result = await asyncio.to_thread(pipeline.invoke, state)
     log.info("Pipeline finished in %.1fs", time.monotonic() - t0)
 
-    answer = result.get("answer") or "I was unable to generate a response."
+    answer      = result.get("answer") or "I was unable to generate a response."
+    chart_specs = result.get("chart_specs", [])
     history_turns.append(f"Q: {message}\nA: {answer}")
     _conversation_history[thread_id] = history_turns
-    return answer
+    return {"answer": answer, "charts": chart_specs}
 
 
 async def run_agent(

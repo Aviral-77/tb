@@ -331,7 +331,7 @@ async def db_chat(request: ChatRequest):
     # but each conversation_id gets its own thread in MemorySaver.
     session_id = "db-global"
     try:
-        response_text = await run_db_agent(
+        result = await run_db_agent(
             session_id=session_id,
             message=request.message,
             conversation_id=request.conversation_id,
@@ -342,8 +342,19 @@ async def db_chat(request: ChatRequest):
             detail=f"Agent error: {str(exc)}",
         ) from exc
 
+    response_text = result["answer"]
+    charts_raw    = result.get("charts", [])
+    charts        = []
+    for c in charts_raw:
+        try:
+            from app.models.schemas import ChartSpec
+            charts.append(ChartSpec(**c))
+        except Exception:
+            pass
+
     return ChatResponse(
         response=response_text,
+        charts=charts,
         conversation_id=request.conversation_id,
         session_id=session_id,
     )

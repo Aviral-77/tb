@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digiwise AI Copilot</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2a2d3e;
+      --accent:   #6c63ff;
+      --accent2:  #4ecca3;
+      --text:     #e2e8f0;
+      --muted:    #718096;
+      --user-bg:  #2d2f45;
+      --bot-bg:   #1e2030;
+      --error:    #fc8181;
+      --warn:     #f6ad55;
+      --radius:   12px;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    #db-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.78rem; color: var(--muted);
+    }
+
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    .dot.ok  { background: var(--accent2); }
+    .dot.err { background: var(--error); }
+
+    .btn-new {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-new:hover { border-color: var(--accent); color: var(--text); }
+
+    /* ── Layout ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 8px;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+
+    .sidebar-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .suggestion {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      cursor: pointer;
+      line-height: 1.4;
+      transition: all 0.18s;
+    }
+    .suggestion:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: var(--user-bg);
+    }
+
+    /* ── Chat area ── */
+    .chat-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    #messages::-webkit-scrollbar { width: 5px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── Messages ── */
+    .msg { display: flex; gap: 12px; max-width: 860px; width: 100%; }
+    .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg.bot  { align-self: flex-start; }
+
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0; margin-top: 2px;
+    }
+    .msg.user .avatar { background: var(--accent); }
+    .msg.bot  .avatar { background: var(--surface); border: 1px solid var(--border); }
+
+    .bubble {
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      font-size: 0.88rem;
+      line-height: 1.65;
+      max-width: calc(100% - 48px);
+      word-break: break-word;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .msg.user .bubble {
+      background: var(--user-bg);
+      border: 1px solid var(--border);
+      border-top-right-radius: 4px;
+    }
+
+    .msg.bot .bubble {
+      background: var(--bot-bg);
+      border: 1px solid var(--border);
+      border-top-left-radius: 4px;
+    }
+
+    /* ── Insight card ── */
+    .insight-card {
+      background: linear-gradient(135deg, rgba(108,99,255,0.12), rgba(78,204,163,0.08));
+      border: 1px solid rgba(108,99,255,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    /* ── Data table ── */
+    .bubble pre {
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 0.78rem;
+      background: #12141e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.5;
+    }
+
+    /* ── Source badge ── */
+    .source-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--accent2);
+      background: rgba(78,204,163,0.08);
+      border: 1px solid rgba(78,204,163,0.2);
+      border-radius: 6px;
+      padding: 5px 10px;
+    }
+    .source-badge svg { flex-shrink: 0; }
+
+    /* ── Follow-up chip ── */
+    .followup-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      color: var(--accent);
+      cursor: pointer;
+      transition: all 0.18s;
+      text-align: left;
+    }
+    .followup-chip:hover {
+      background: rgba(108,99,255,0.15);
+      color: var(--text);
+    }
+
+    /* ── Error badge ── */
+    .bubble.error { border-color: var(--error); }
+    .error-badge {
+      background: rgba(252,129,129,0.1);
+      border: 1px solid rgba(252,129,129,0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--error);
+      font-size: 0.83rem;
+    }
+
+    /* ── Plain paragraph ── */
+    .bubble p { margin: 0; }
+
+    /* ── Thinking indicator ── */
+    .thinking { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.82rem; }
+    .dots span {
+      display: inline-block;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--muted);
+      animation: bounce 1.2s infinite;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%           { transform: translateY(-5px); }
+    }
+
+    /* ── Input bar ── */
+    .input-bar {
+      padding: 16px 20px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    #user-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 11px 14px;
+      resize: none;
+      line-height: 1.5;
+      max-height: 160px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    #user-input:focus { border-color: var(--accent); }
+    #user-input::placeholder { color: var(--muted); }
+
+    #send-btn {
+      width: 42px; height: 42px;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s, transform 0.1s;
+      color: #fff;
+    }
+    #send-btn:hover  { background: #5a52e0; }
+    #send-btn:active { transform: scale(0.95); }
+    #send-btn:disabled { background: var(--border); cursor: not-allowed; }
+    #send-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+    .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+      padding-bottom: 4px;
+      flex-shrink: 0;
+    }
+
+    /* ── Chart container ── */
+    .chart-wrap {
+      background: #12141e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+    }
+    .chart-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chart-canvas-wrap {
+      position: relative;
+      width: 100%;
+    }
+
+    /* ── Welcome ── */
+    .welcome {
+      margin: auto;
+      text-align: center;
+      max-width: 480px;
+      padding: 24px;
+    }
+    .welcome-icon { font-size: 3rem; margin-bottom: 16px; }
+    .welcome h2 { font-size: 1.4rem; margin-bottom: 8px; }
+    .welcome p { color: var(--muted); font-size: 0.88rem; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">📊</div>
+    Digiwise AI Copilot
+  </div>
+  <div class="header-right">
+    <div id="db-status">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Checking DB…</span>
+    </div>
+    <button class="btn-new" onclick="newConversation()">+ New chat</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <aside>
+    <div class="sidebar-title">Suggested questions</div>
+    <div class="suggestion" onclick="ask(this)">What is the total revenue for 2024?</div>
+    <div class="suggestion" onclick="ask(this)">Show net monthly cash flow for 2024</div>
+    <div class="suggestion" onclick="ask(this)">Top 5 distributors by commission in 2025</div>
+    <div class="suggestion" onclick="ask(this)">ARPU sortant real vs budget 2025</div>
+    <div class="suggestion" onclick="ask(this)">Commission enlevements by distributor 2025</div>
+    <div class="suggestion" onclick="ask(this)">Which months had the highest CAPEX spend?</div>
+    <div class="suggestion" onclick="ask(this)">Revenue breakdown by category 2024</div>
+    <div class="suggestion" onclick="ask(this)">Compare actual vs budget for Q1 2025</div>
+  </aside>
+
+  <div class="chat-wrap">
+    <div id="messages">
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">💬</div>
+        <h2>Ask anything about Moov Benin data</h2>
+        <p>I query the Digiwise database directly — revenue, commissions, cash flow, ARPU, CAPEX, and more. Every answer is validated against live data.</p>
+      </div>
+    </div>
+
+    <div class="hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</div>
+    <div class="input-bar">
+      <textarea id="user-input" rows="1" placeholder="Ask a question about the data…"></textarea>
+      <button id="send-btn" onclick="sendMessage()" title="Send">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const API = '';
+  let conversationId = crypto.randomUUID();
+  const _chartInstances = {};   // canvasId → Chart instance (for cleanup)
+
+  // ── DB health ────────────────────────────────────────────────────────────
+  async function checkHealth() {
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    try {
+      const r = await fetch(`${API}/api/v1/db/health`);
+      if (r.ok) {
+        const d = await r.json();
+        dot.className = 'dot ok';
+        text.textContent = `DB connected · ${(d.monthly_data_rows ?? 0).toLocaleString()} rows`;
+      } else { throw new Error(); }
+    } catch {
+      dot.className = 'dot err';
+      text.textContent = 'DB unreachable';
+    }
+  }
+  checkHealth();
+
+  // ── Auto-resize textarea ─────────────────────────────────────────────────
+  const ta = document.getElementById('user-input');
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+
+  function ask(el) { ta.value = el.textContent; sendMessage(); }
+
+  function newConversation() {
+    conversationId = crypto.randomUUID();
+    // Destroy all chart instances to free memory
+    Object.values(_chartInstances).forEach(c => c.destroy());
+    Object.keys(_chartInstances).forEach(k => delete _chartInstances[k]);
+    document.getElementById('messages').innerHTML = `
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">💬</div>
+        <h2>Ask anything about Moov Benin data</h2>
+        <p>I query the Digiwise database directly — every answer is validated against live data.</p>
+      </div>`;
+  }
+
+  function scrollBottom() {
+    const m = document.getElementById('messages');
+    m.scrollTop = m.scrollHeight;
+  }
+
+  function removeWelcome() {
+    const w = document.getElementById('welcome');
+    if (w) w.remove();
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Number formatting ─────────────────────────────────────────────────────
+  function fmtNum(v) {
+    if (v === null || v === undefined) return 'N/A';
+    const n = parseFloat(v);
+    if (isNaN(n)) return String(v);
+    if (Math.abs(n) >= 1e9)  return (n / 1e9).toFixed(2) + 'B';
+    if (Math.abs(n) >= 1e6)  return (n / 1e6).toFixed(2) + 'M';
+    if (Math.abs(n) >= 1e3)  return (n / 1e3).toFixed(1) + 'K';
+    return n.toLocaleString();
+  }
+
+  // ── Chart rendering ───────────────────────────────────────────────────────
+  let _chartSeq = 0;
+
+  function renderChart(spec) {
+    const id = `chart-${++_chartSeq}`;
+    const isHoriz = spec.chart_type === 'bar_horizontal';
+    const isLine  = spec.chart_type === 'line';
+
+    const labels = spec.data.map(d => d[spec.x_key] ?? '');
+    const datasets = spec.y_keys.map((key, i) => {
+      const color = spec.colors[i] || '#6c63ff';
+      const vals  = spec.data.map(d => d[key]);
+      return {
+        label:           key.replace(/_/g, ' '),
+        data:            vals,
+        backgroundColor: isLine ? 'transparent' : color + 'cc',
+        borderColor:     color,
+        borderWidth:     isLine ? 2 : 0,
+        borderRadius:    isLine ? 0 : 4,
+        pointRadius:     isLine ? 3 : 0,
+        pointBackgroundColor: color,
+        tension:         0.35,
+        fill:            isLine && spec.y_keys.length === 1,
+        ...(isLine && spec.y_keys.length === 1 ? {
+          backgroundColor: color + '22',
+        } : {}),
+      };
+    });
+
+    // height: taller for horizontal bars (more labels)
+    const height = isHoriz ? Math.max(220, labels.length * 28) : 240;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'chart-wrap';
+    wrap.innerHTML = `
+      <div class="chart-title">${escHtml(spec.title)}</div>
+      <div class="chart-canvas-wrap" style="height:${height}px">
+        <canvas id="${id}"></canvas>
+      </div>`;
+
+    // Defer Chart creation until canvas is in DOM
+    requestAnimationFrame(() => {
+      const canvas = document.getElementById(id);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+
+      if (_chartInstances[id]) _chartInstances[id].destroy();
+
+      _chartInstances[id] = new Chart(ctx, {
+        type: isLine ? 'line' : 'bar',
+        data: { labels, datasets },
+        options: {
+          indexAxis:   isHoriz ? 'y' : 'x',
+          responsive:  true,
+          maintainAspectRatio: false,
+          animation:   { duration: 500 },
+          plugins: {
+            legend: {
+              display: datasets.length > 1,
+              labels:  { color: '#e2e8f0', font: { size: 11 } },
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${ctx.dataset.label}: ${fmtNum(ctx.raw)} ${spec.unit}`,
+              },
+              backgroundColor: '#1a1d27',
+              borderColor:     '#2a2d3e',
+              borderWidth:     1,
+              titleColor:      '#e2e8f0',
+              bodyColor:       '#a0aec0',
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: '#718096', font: { size: 11 },
+                callback: isHoriz ? undefined : v => fmtNum(v),
+                maxRotation: 45,
+              },
+              grid:  { color: '#2a2d3e' },
+            },
+            y: {
+              ticks: { color: '#718096', font: { size: 11 },
+                callback: isHoriz ? undefined : v => fmtNum(v),
+              },
+              grid:  { color: '#2a2d3e' },
+            },
+          },
+        },
+      });
+    });
+
+    return wrap;
+  }
+
+  // ── Bot message text renderer ─────────────────────────────────────────────
+  function renderBotText(text) {
+    const lines  = text.split('\n');
+    const blocks = [];
+    let buffer   = [];
+
+    function flush() {
+      if (buffer.length) { blocks.push({ type: 'lines', lines: [...buffer] }); buffer = []; }
+    }
+
+    for (const line of lines) {
+      const insightM = line.match(/^\*\*Insight\*\*:\s*(.*)/i);
+      const sourceM  = line.match(/^\*\*Source\*\*:\s*(.*)/i);
+      const followM  = line.match(/^\*\*Follow-?up\*\*:\s*(.*)/i);
+
+      if (insightM)      { flush(); blocks.push({ type: 'insight',  text: insightM[1].trim() }); }
+      else if (sourceM)  { flush(); blocks.push({ type: 'source',   text: sourceM[1].trim() }); }
+      else if (followM)  { flush(); blocks.push({ type: 'followup', text: followM[1].trim() }); }
+      else               { buffer.push(line); }
+    }
+    flush();
+
+    let html = '';
+    for (const block of blocks) {
+      if (block.type === 'insight') {
+        html += `<div class="insight-card">${escHtml(block.text)}</div>`;
+
+      } else if (block.type === 'source') {
+        html += `
+          <div class="source-badge">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Verified · ${escHtml(block.text)}
+          </div>`;
+
+      } else if (block.type === 'followup') {
+        html += `
+          <button class="followup-chip" onclick="askText(${JSON.stringify(block.text)})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+            </svg>
+            ${escHtml(block.text)}
+          </button>`;
+
+      } else {
+        const raw = block.lines.join('\n').trim();
+        if (!raw) continue;
+        const isTable = block.lines.some(l =>
+          l.startsWith(' ') || l.startsWith('\t') ||
+          /\|/.test(l) || /^[-+]{3,}/.test(l.trim())
+        );
+        if (isTable) {
+          html += `<pre>${escHtml(raw)}</pre>`;
+        } else {
+          raw.split(/\n{2,}/).forEach(p => {
+            if (p.trim()) html += `<p>${escHtml(p.trim())}</p>`;
+          });
+        }
+      }
+    }
+    return html || `<p>${escHtml(text)}</p>`;
+  }
+
+  // ── Append message (with optional charts) ────────────────────────────────
+  function appendMsg(role, content, isError = false, charts = []) {
+    const wrap = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = `msg ${role}`;
+
+    const avatar = role === 'user' ? '👤' : '🤖';
+    let body;
+    if (role === 'bot' && isError) {
+      body = `<div class="error-badge">${escHtml(content)}</div>`;
+    } else if (role === 'bot') {
+      body = renderBotText(content);
+    } else {
+      body = `<p>${escHtml(content)}</p>`;
+    }
+
+    div.innerHTML = `
+      <div class="avatar">${avatar}</div>
+      <div class="bubble${isError ? ' error' : ''}">${body}</div>`;
+    wrap.appendChild(div);
+
+    // Append charts below the bubble
+    if (charts && charts.length > 0) {
+      const bubble = div.querySelector('.bubble');
+      charts.forEach(spec => {
+        try {
+          bubble.appendChild(renderChart(spec));
+        } catch (e) { console.warn('Chart render error', e); }
+      });
+    }
+
+    scrollBottom();
+  }
+
+  function appendThinking() {
+    const wrap = document.getElementById('messages');
+    const div  = document.createElement('div');
+    div.className = 'msg bot';
+    div.id = 'thinking';
+    div.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="bubble">
+        <div class="thinking">
+          Querying database
+          <div class="dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>`;
+    wrap.appendChild(div);
+    scrollBottom();
+  }
+
+  function removeThinking() {
+    const t = document.getElementById('thinking');
+    if (t) t.remove();
+  }
+
+  // ── Send ──────────────────────────────────────────────────────────────────
+  function askText(text) { ta.value = text; sendMessage(); }
+
+  async function sendMessage() {
+    const input = ta.value.trim();
+    if (!input) return;
+
+    removeWelcome();
+    ta.value = '';
+    ta.style.height = 'auto';
+
+    const btn = document.getElementById('send-btn');
+    btn.disabled = true;
+
+    appendMsg('user', input);
+    appendThinking();
+
+    try {
+      const res = await fetch(`${API}/api/v1/db/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input, conversation_id: conversationId }),
+      });
+
+      removeThinking();
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        appendMsg('bot', `Error ${res.status}: ${err.detail || res.statusText}`, true);
+      } else {
+        const data = await res.json();
+        appendMsg('bot', data.response, false, data.charts || []);
+      }
+    } catch (err) {
+      removeThinking();
+      appendMsg('bot', `Network error: ${err.message}`, true);
+    } finally {
+      btn.disabled = false;
+      ta.focus();
+    }
+  }
+</script>
+</body>
+</html>

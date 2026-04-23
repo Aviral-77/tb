@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Ollama (local)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "mistral"
+    OLLAMA_MODEL: str = "llama3"
     # Embedding model for schema RAG — defaults to OLLAMA_MODEL if empty.
     # Pull a dedicated model for better quality: ollama pull nomic-embed-text
     OLLAMA_EMBEDDING_MODEL: str = ""

@@ -5,18 +5,24 @@ Start with:
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.config.settings import settings
+
+_STATIC = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print(f"Starting {settings.APP_TITLE} v{settings.APP_VERSION}")
+    print(f"LLM model: {settings.OLLAMA_MODEL} (base_url: {settings.OLLAMA_BASE_URL})")
     print(f"LangSmith tracing: {'enabled' if settings.LANGSMITH_API_KEY else 'disabled'}")
     yield
     # Shutdown — nothing to clean up (sessions are in-memory)
@@ -41,3 +47,10 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+# Serve the chat UI at /
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+
+@app.get("/", include_in_schema=False)
+async def serve_ui():
+    return FileResponse(_STATIC / "index.html")

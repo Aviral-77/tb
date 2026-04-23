@@ -1,0 +1,71 @@
+  1. Which metrics had the biggest budget vs real gap in 2025?
+{
+  "response": "The key insight from the data is that there are significant budget vs real gaps in various metrics, with some showing large discrepancies between planned and actual values.\n\nHere is the table:\n\nname                                                                                                       | budget_vs_real_gap\n-----------------------------------------------------------------------------------------------------------+-------------------\nCommercial                                                                                                 | (null)            \nMateriel bureautique                                                                                       | (null)            \nAutres                                                                                                     | (null)            \n... (1633 more rows not shown)\n\nWhat do you think are the main drivers of these gaps, and how can we work to reduce them in future planning?",
+  "conversation_id": "default",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  2. Total capex spend by month in 2025?
+{
+  "response": "The key insight from the data is that the total capex spend for 2025 was a significant $26,735,408.42.\n\nHere is the table:\n\n?column?   \n-----------\n26735408428\n\nCan you tell me what specific projects or initiatives drove this level of spending in 2025?",
+  "conversation_id": "default",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  3. Which suppliers drove the September 2025 capex spike?
+{
+  "response": "SQL_GENERATION_FAILED: I was unable to generate a valid query after 3 repair attempt(s).\nLast error: column \"supplier_name\" does not exist",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  4. Commission enlevements by distributor per month in 2025?
+{
+  "response": "The key insight from the data is that senaniminde had the highest commission enlevements in January and February of 2025, with a total of $4 million.\n\nHere are the results:\n\nprodium  | linarcels | somac    | easycom  | d_commercial | aftel   | senaniminde\n---------+-----------+----------+----------+--------------+---------+------------\n51546392 | 242268042 | 88659794 | 0        | 19793816     | 0       | (null)     \n0        | 52000000  | 14000000 | 15000000 | 12000000     | 0       | (null)     \n0        | 52000000  | 14000000 | 15000000 | 12000000     | 0       | (null)     \n0        | 30000000  | 8000000  | 5000000  | 3000000      | 4000000 | 2000000    \n0        | 30000000  | 8000000  | 5000000  | 3000000      | 4000000 | 2000000    \n30000000 | 20000000  | 4000000  | 5000000  | 0            | 2000000 | 2000000    ",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  5. Commission calculation rules — what rates apply at what thresholds?
+{
+  "response": "The key insight from the data is that there are different commission rates applied at various thresholds for each commission type.\n\nHere is the table:\n\ncommission_type_id | min_threshold | max_threshold | commission_rate\n-------------------+---------------+---------------+----------------\n1                  | 80.0          | 99.99         | 0.65           \n1                  | 100.0         | 50.0          | 0.75           \n2                  | 0.0           | 69.99         | 0.0            \n2                  | 80.0          | 89.99         | 0.5            \n3                  | 0.0           | 89.99         | 0.5            \n3                  | 90.0          | 94.99         | 0.75           \n3                  | 95.0          | 6.0           | 1.0            \n1                  | 0.0           | 79.99         | 0.5            \n2                  | 70.0          | 84.99         | 0.25           \n2                  | 90.0          | 94.99         | 0.75           \n2                  | 95.0          | 100.0         | 1.0\n\nWhat is the typical sales range for each commission type, and how do these rates impact overall revenue?",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  6. Net monthly cash flow for each month of 2024?
+{
+  "response": "The key insight from the data is that the net monthly cash flow for January 2024 was approximately $2,998,413.\n\n| ?column? |\n| --------- |\n| 2998413.0 |\n\nWhat would you like to know about the overall trend of cash flows throughout 2024?",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  7. Which month in 2025 had the worst cash flow?
+{
+  "response": "The data shows that June 2025 had the worst cash flow, with a total of -$2,213.\n\nResult:\n\nid   | entity_id | entity_type | year | last_year_total | current_year_total | jan    | feb    | mar    | apr    | may    | jun     | jul    | aug    | sep    | oct    | nov    | dec    | version_id\n-----+-----------+-------------+------+-----------------+--------------------+--------+--------+--------+--------+--------+---------+--------+--------+--------+--------+--------+--------+-----------\n1033 | 11        | section     | 2025 | 5682.0          | -2213.0            | (null) | (null) | (null) | (null) | (null) | -2213.0 | (null) | (null) | (null) | (null) | (null) | (null) | 51        ",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
+
+  8. Dealer commission overspend vs budget in January 2025?
+  {
+  "response": "The key insight from the data is that there was a significant overspend on dealer commissions in January 2025, with some dealers exceeding their budgets by millions.\n\nHere are the results:\n\nprodium  | linarcels | somac    | easycom  | d_commercial | aftel   | senaniminde\n---------+-----------+----------+----------+--------------+---------+------------\n51546392 | 242268042 | 88659794 | 0        | 19793816     | 0       | (null)     \n0        | 52000000  | 14000000 | 15000000 | 12000000     | 0       | (null)     \n0        | 52000000  | 14000000 | 15000000 | 12000000     | 0       | (null)     \n0        | 30000000  | 8000000  | 5000000  | 3000000      | 4000000 | 2000000    \n0        | 30000000  | 8000000  | 5000000  | 3000000      | 4000000 | 2000000    \n30000000 | 20000000  | 4000000  | 5000000  | 0            | 2000000 | 2000000\n\nCan you tell me which dealers were responsible for the largest overspends on commission in January 2025?",
+  "conversation_id": "default-a",
+  "charts": [],
+  "alerts": [],
+  "session_id": "db-global"
+}
