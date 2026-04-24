@@ -22,7 +22,10 @@ _STATIC = Path(__file__).parent / "static"
 async def lifespan(app: FastAPI):
     # Startup
     print(f"Starting {settings.APP_TITLE} v{settings.APP_VERSION}")
-    print(f"LLM model: {settings.OLLAMA_MODEL} (base_url: {settings.OLLAMA_BASE_URL})")
+    if settings.is_ollama_cloud:
+        print(f"LLM: {settings.OLLAMA_MODEL} (OLLAMA CLOUD)")
+    else:
+        print(f"LLM: {settings.OLLAMA_MODEL} (LOCAL at {settings.OLLAMA_BASE_URL})")
     print(f"LangSmith tracing: {'enabled' if settings.LANGSMITH_API_KEY else 'disabled'}")
     yield
     # Shutdown — nothing to clean up (sessions are in-memory)

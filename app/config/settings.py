@@ -3,9 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Ollama (local)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    # Ollama — supports both local and cloud
+    # OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_BASE_URL: str = "https://api.ollama.com"
     OLLAMA_MODEL: str = "llama3"
+    OLLAMA_API_KEY: str = ""  # Set for Ollama Cloud, leave empty for local
+    
     # Embedding model for schema RAG — defaults to OLLAMA_MODEL if empty.
     # Pull a dedicated model for better quality: ollama pull nomic-embed-text
     OLLAMA_EMBEDDING_MODEL: str = ""
@@ -24,6 +27,19 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    
+    @property
+    def OLLAMA_CLIENT_KWARGS(self) -> dict[str, dict[str, str]]:
+        """Return a dict of kwargs to initialize the Ollama client, based on current settings."""
+        if self.OLLAMA_API_KEY:
+            return {
+                "headers": {'Authorization': f"Bearer {self.OLLAMA_API_KEY}"},
+            }
+        return {}
+    @property
+    def is_ollama_cloud(self) -> bool:
+        """Return True if using Ollama Cloud, False if using local Ollama."""
+        return bool(self.OLLAMA_API_KEY)
 
 
 settings = Settings()

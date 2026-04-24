@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import textwrap
 import time
@@ -63,19 +64,58 @@ def _clip(text: str, n: int = 140) -> str:
 # ---------------------------------------------------------------------------
 # Shared LLM factory
 # ---------------------------------------------------------------------------
+from ollama import Client
 
-def _make_llm() -> ChatOllama:
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
-        temperature=0,
-    )
-    log.debug(
-        "LLM initialized: model=%s, base_url=%s",
-        settings.OLLAMA_MODEL,
-        settings.OLLAMA_BASE_URL,
-    )
-    return llm
+class OllamaLLM:
+    """Wrapper for Ollama client that implements invoke() interface for LangGraph."""
+    def __init__(self, client: Client):
+        self.client = client
+
+    def invoke(self, messages):
+        """Convert LangChain messages to Ollama format and get response."""
+        msgs = []
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                msgs.append({"role": "system", "content": m.content})
+            elif isinstance(m, HumanMessage):
+                msgs.append({"role": "user", "content": m.content})
+            else:
+                raise ValueError(f"Unsupported message type: {type(m)}")
+        
+        try:
+            response = self.client.chat(
+                model=settings.OLLAMA_MODEL,
+                messages=msgs,
+            )
+            content = response.get('message', {}).get('content', '')
+            if not content:
+                raise ValueError("Empty response from Ollama API")
+            return HumanMessage(content=content)
+        except Exception as e:
+            log.error("Ollama API call failed: %s", str(e))
+            raise
+
+
+def _make_llm() -> OllamaLLM:
+    """Create Ollama client for local or cloud Ollama."""
+    if settings.is_ollama_cloud:
+        # Ollama Cloud mode — requires API key for authentication
+        headers = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+        client = Client(host=settings.OLLAMA_BASE_URL, headers=headers)
+        log.info(
+            "LLM initialized — API: OLLAMA CLOUD | model: %s",
+            settings.OLLAMA_MODEL,
+        )
+        log.debug("Cloud endpoint: %s with Bearer token auth", settings.OLLAMA_BASE_URL)
+    else:
+        # Local Ollama mode — no authentication needed
+        client = Client(host=settings.OLLAMA_BASE_URL)
+        log.info(
+            "LLM initialized — API: LOCAL OLLAMA | model: %s | base_url: %s",
+            settings.OLLAMA_MODEL,
+            settings.OLLAMA_BASE_URL,
+        )
+    return OllamaLLM(client)
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +369,15 @@ CAPEX HIERARCHY — for questions about CAPEX suppliers, projects, spend by mont
   capex_data:     id [PK], capex_projects_id (FK → capex_projects.id), month, year,
                   equipment, services, additional_costs
 
-  ✓ Correct query — suppliers by CAPEX spend for a given month:
+  ✓ Monthly trend (total spend per month — NO supplier breakdown):
+    SELECT cd.month,
+           SUM(COALESCE(cd.equipment,0) + COALESCE(cd.services,0) + COALESCE(cd.additional_costs,0)) AS total_capex
+    FROM capex_data cd
+    WHERE cd.year = 2025
+    GROUP BY cd.month
+    ORDER BY cd.month;
+
+  ✓ Suppliers for a specific month (requires JOIN to capex_projects):
     SELECT cp.supplier_name,
            SUM(cd.equipment + cd.services + cd.additional_costs) AS total_spend
     FROM capex_data cd
@@ -339,6 +387,8 @@ CAPEX HIERARCHY — for questions about CAPEX suppliers, projects, spend by mont
     GROUP BY cp.supplier_name
     ORDER BY total_spend DESC;
 
+  ✗ NEVER mix supplier columns into a monthly trend query — if the question
+    asks "monthly trend" or "per month", GROUP BY cd.month only, no JOIN needed.
   ✗ NEVER reference capex_projects columns without the JOIN above.
 
 CASH FLOW HIERARCHY — use ONLY for questions about flux de trésorerie / treasury / liquidity:
@@ -772,9 +822,13 @@ You are a senior financial analyst presenting database query results to a Moov B
 CURRENCY: All monetary values are in FCFA (West African CFA franc). NEVER write $ or USD.
 NUMBERS:  Always use thousands separators — write 2,998,413 not 2998413.
 
+CRITICAL — DATA FACTS are pre-computed for you in Python and are 100% accurate.
+You MUST use the numbers from DATA FACTS verbatim in your Insight. Do NOT re-read
+or reinterpret the table — trust the DATA FACTS section only for peak, total, and share figures.
+
 OUTPUT FORMAT — use EXACTLY this four-section structure:
 
-**Insight**: [1–2 sentences: the key business finding. Include the actual number(s) with thousands separators and FCFA where monetary.]
+**Insight**: [1–2 sentences using numbers from DATA FACTS. State the highest value row, its amount, and its share of total.]
 
 [Reproduce the data table exactly as provided — do not reformat or omit rows]
 
@@ -783,9 +837,10 @@ OUTPUT FORMAT — use EXACTLY this four-section structure:
 **Follow-up**: [One specific, actionable question the executive should ask next about this metric — not generic]
 
 STRICT RULES:
+- Peak/max/total: copy from DATA FACTS, never re-derive from the table.
 - NEVER output SQL, column types, or any technical detail.
 - NEVER invent numbers not present in the results.
-- If a cell shows "(null)" → write "no data" instead. NEVER write "None" or "null".
+- If a cell shows "(null)" → write "no data". NEVER write "None" or "null".
 - If a column is named "?column?" → label it "Value" in your narrative.
 - Do NOT start with "I'm sorry", "Based on", or "The query returned".
 - Respond in the same language as the user question.
@@ -927,6 +982,65 @@ def _build_ascii_table(rows: list[dict], cols: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _compute_data_facts(cols: list[str], rows: list[dict]) -> str:
+    """
+    Pre-compute key statistics from the result set in Python (ground truth).
+    Injected into the LLM prompt so it cannot misidentify peaks, totals, or shares.
+    """
+    from decimal import Decimal
+
+    if not rows or not cols:
+        return ""
+
+    # Columns that look like dimension/index, not metrics
+    _DIM_COLS = {"month", "year", "id", "sequence", "rank", "quarter", "week"}
+
+    numeric_col = label_col = None
+    for c in cols:
+        vals = [r.get(c) for r in rows if r.get(c) is not None]
+        if not vals:
+            continue
+        is_numeric = all(isinstance(v, (int, float, Decimal)) for v in vals)
+        is_dim     = c.lower() in _DIM_COLS or c.lower().endswith("_id")
+        if is_numeric and not is_dim:
+            if numeric_col is None:
+                numeric_col = c
+        elif not is_numeric or is_dim:
+            if label_col is None:
+                label_col = c
+
+    if not numeric_col:
+        return ""
+
+    float_vals = [(_to_float(r.get(numeric_col)), r) for r in rows]
+    float_vals = [(v, r) for v, r in float_vals if v is not None]
+    if not float_vals:
+        return ""
+
+    total      = sum(v for v, _ in float_vals)
+    max_val, max_row = max(float_vals, key=lambda x: x[0])
+    min_val, min_row = min(float_vals, key=lambda x: x[0])
+    max_share  = (max_val / total * 100) if total else 0
+    max_label  = str(max_row.get(label_col or cols[0], ""))
+
+    facts = [
+        f"DATA FACTS (computed in Python — use these numbers exactly in your Insight):",
+        f"  • Highest value : {max_label} = {max_val:,.0f} ({max_share:.1f}% of total)",
+        f"  • Lowest value  : {str(min_row.get(label_col or cols[0], ''))} = {min_val:,.0f}",
+        f"  • Grand total   : {total:,.0f}",
+        f"  • Row count     : {len(rows)}",
+    ]
+
+    # Flag if multiple rows are numeric for trend direction
+    if len(float_vals) >= 3:
+        ordered_vals = [v for v, _ in float_vals]
+        increases = sum(1 for i in range(1, len(ordered_vals)) if ordered_vals[i] > ordered_vals[i-1])
+        direction = "mostly increasing" if increases > len(ordered_vals) // 2 else "mostly decreasing" if increases < len(ordered_vals) // 2 else "mixed"
+        facts.append(f"  • Trend direction: {direction}")
+
+    return "\n".join(facts)
+
+
 def _source_context(sql: str, rows: list[dict]) -> str:
     """Derive a short validation line from the SQL and result size."""
     tables = sorted(_referenced_tables(sql))
@@ -974,13 +1088,16 @@ def _make_format_answer_node(llm: ChatOllama):
                 "Try broadening your filters or checking the date range."
             )}
 
-        # ── Build table, chart spec, and source context ──────────────────
+        # ── Build table, facts, chart spec, and source context ───────────
         table      = _build_ascii_table(rows, cols)
+        facts      = _compute_data_facts(cols, rows)
         source     = _source_context(sql, rows)
         chart_spec = _build_chart_spec(cols, rows, question)
         if chart_spec:
             log.info("format_answer: chart_type=%s x=%s y=%s",
                      chart_spec["chart_type"], chart_spec["x_key"], chart_spec["y_keys"])
+        if facts:
+            log.info("format_answer: data facts injected:\n%s", facts)
 
         log.info("format_answer: narrating %d rows via LLM", len(rows))
         t0 = time.monotonic()
@@ -988,6 +1105,7 @@ def _make_format_answer_node(llm: ChatOllama):
             SystemMessage(content=_FMT_SYSTEM),
             HumanMessage(content=(
                 f"User question: {question}\n\n"
+                f"{facts}\n\n"
                 f"Query source (for the **Source** line): {source}\n\n"
                 f"Result ({len(rows)} row(s)):\n{table}"
             )),
@@ -1055,6 +1173,66 @@ def _get_db_pipeline() -> object:
 
 
 # ---------------------------------------------------------------------------
+# Question intent classification
+# ---------------------------------------------------------------------------
+
+_INTENT_CLASSIFIER_PROMPT = """\
+Classify the user's question as one of:
+- "definition": asking for explanation/definition of a term or concept (e.g., "what is CAPEX", "explain revenue", "what do you mean by EBITDA")
+- "data_query": asking for data, metrics, or analysis (e.g., "show me sales", "how much did we spend", "what was the trend")
+- "other": something else (e.g., small talk, greetings, off-topic)
+
+Respond with ONLY the classification (one word: "definition", "data_query", or "other").
+
+Question: {question}
+Classification:"""
+
+
+def _classify_question_intent(llm: OllamaLLM, question: str) -> str:
+    """Use LLM to classify if question is asking for definition or data query."""
+    try:
+        prompt = _INTENT_CLASSIFIER_PROMPT.format(question=question)
+        response = llm.invoke([
+            SystemMessage(content="You are a question classifier."),
+            HumanMessage(content=prompt),
+        ])
+        classification = response.content.strip().lower()
+        
+        # Validate response
+        valid = ("definition", "data_query", "other")
+        if classification not in valid:
+            # If LLM gave unexpected output, default to data_query
+            log.warning("Unexpected classification output: %s — defaulting to data_query", classification)
+            return "data_query"
+        
+        log.info("Question classified as: %s", classification)
+        return classification
+    except Exception as exc:
+        log.warning("Classification failed (%s) — defaulting to data_query", exc)
+        return "data_query"
+
+
+def _get_definition_answer(question: str, llm: OllamaLLM) -> str:
+    """Use LLM to generate explanation for definition questions."""
+    try:
+        response = llm.invoke([
+            SystemMessage(content=(
+                "You are a financial analyst expert for Moov Benin. "
+                "Answer questions about financial terms and KPI definitions clearly and concisely. "
+                "Include practical examples relevant to telecom/financial services business."
+            )),
+            HumanMessage(content=question),
+        ])
+        answer = response.content.strip()
+        if not answer:
+            answer = "I was unable to generate an explanation. Please try rephrasing your question."
+        return answer
+    except Exception as exc:
+        log.error("Definition generation failed: %s", exc)
+        return f"I encountered an error while generating the explanation: {str(exc)}"
+
+
+# ---------------------------------------------------------------------------
 # Conversation history
 # ---------------------------------------------------------------------------
 
@@ -1083,6 +1261,22 @@ async def run_db_agent(
     history_turns = _conversation_history.get(thread_id, [])
     history_text  = "\n".join(history_turns[-6:])
 
+    # ─────────────────────────────────────────────────────────────
+    # Pre-check: Classify question intent using LLM
+    # ─────────────────────────────────────────────────────────────
+    llm = _make_llm()
+    classification = _classify_question_intent(llm, message)
+    
+    if classification == "definition":
+        answer = _get_definition_answer(message, llm)
+        log.info("Definition question detected — returning explanation")
+        history_turns.append(f"Q: {message}\nA: {answer}")
+        _conversation_history[thread_id] = history_turns
+        return {"answer": answer, "charts": []}
+
+    # ─────────────────────────────────────────────────────────────
+    # Proceed with normal SQL pipeline for data queries
+    # ─────────────────────────────────────────────────────────────
     pipeline = _get_db_pipeline()
 
     log.info("=== run_db_agent  session=%s  conv=%s ===", session_id, conversation_id)
