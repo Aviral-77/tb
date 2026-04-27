@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,8 +27,14 @@ class Settings(BaseSettings):
     APP_TITLE: str = "TBG AI Copilot"
     APP_VERSION: str = "1.0.0"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-    
+    # Prefer the repo-root .env if present, otherwise fall back to tb/.env.
+    _ROOT_ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
+    _LOCAL_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+    model_config = SettingsConfigDict(
+        env_file=_ROOT_ENV_FILE if _ROOT_ENV_FILE.exists() else _LOCAL_ENV_FILE,
+        extra="ignore",
+    )
+
     @property
     def OLLAMA_CLIENT_KWARGS(self) -> dict[str, dict[str, str]]:
         """Return a dict of kwargs to initialize the Ollama client, based on current settings."""

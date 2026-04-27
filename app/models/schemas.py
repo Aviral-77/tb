@@ -24,6 +24,8 @@ class CompareUploadResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str = Field(default="default")
+    model: str | None = Field(default=None)
+    language: str = Field(default="en", pattern="^en$")
 
 
 class ChartSpec(BaseModel):
@@ -34,6 +36,9 @@ class ChartSpec(BaseModel):
     y_keys: list[str]
     colors: list[str] = []
     unit: str = "M CFA"
+    x_label: str = ""
+    y_label: str = ""
+    trend_analysis: str = ""
 
 
 class Alert(BaseModel):
@@ -54,6 +59,7 @@ class ChatResponse(BaseModel):
     charts: list[ChartSpec] = []
     alerts: list[Alert] = []
     session_id: str
+    inference_time: float | None = None
 
 
 class SessionInfo(BaseModel):

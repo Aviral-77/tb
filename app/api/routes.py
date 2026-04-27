@@ -21,6 +21,7 @@ GET    /api/v1/db/metrics/{sheet}            List metrics for a sheet (from DB)
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -29,7 +30,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from app.agents.graph import evict_graph, run_agent, run_db_agent
+_MODEL_LIST_PATH = Path(__file__).resolve().parent.parent.parent / "model_list.json"
+
+from app.agents.graph import evict_graph, run_agent, run_db_agent, run_db_agent_stream
 from app.db.connection import execute as db_execute, ping as db_ping
 from app.db.schema_inspector import build_schema_context, inspect_schema, get_views
 from app.models.schemas import (
@@ -206,13 +209,15 @@ async def chat(session_id: str, request: ChatRequest):
     parsed_data = session["parsed_data"]
 
     try:
-        response_text = await run_agent(
+        agent_result = await run_agent(
             session_id=session_id,
             parsed_data=parsed_data,
             message=request.message,
             conversation_id=request.conversation_id,
+            model=request.model,
+            language=request.language,
         )
-        print(f"Agent response for session {session_id}:\n{response_text}\n")
+        print(f"Agent response for session {session_id}:\n{agent_result['answer']}\n")
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -220,9 +225,10 @@ async def chat(session_id: str, request: ChatRequest):
         ) from exc
 
     return ChatResponse(
-        response=response_text,
+        response=agent_result["answer"],
         conversation_id=request.conversation_id,
         session_id=session_id,
+        inference_time=agent_result.get("inference_time"),
     )
 
 
@@ -299,6 +305,20 @@ async def delete_session(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/v1/models
+# ---------------------------------------------------------------------------
+@router.get("/models")
+async def list_models():
+    """Return the list of available inference models from model_list.json."""
+    try:
+        with open(_MODEL_LIST_PATH) as f:
+            data = json.load(f)
+        return {"models": data.get("models", [])}
+    except FileNotFoundError:
+        return {"models": []}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/v1/health
 # ---------------------------------------------------------------------------
 @router.get("/health", response_model=HealthResponse)
@@ -335,6 +355,8 @@ async def db_chat(request: ChatRequest):
             session_id=session_id,
             message=request.message,
             conversation_id=request.conversation_id,
+            model=request.model,
+            language=request.language,
         )
     except Exception as exc:
         raise HTTPException(
@@ -357,6 +379,43 @@ async def db_chat(request: ChatRequest):
         charts=charts,
         conversation_id=request.conversation_id,
         session_id=session_id,
+        inference_time=result.get("inference_time"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/db/chat/stream
+# ---------------------------------------------------------------------------
+from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
+
+@router.post("/db/chat/stream")
+async def db_chat_stream(request: ChatRequest):
+    """
+    Streaming version of /db/chat using Server-Sent Events.
+    """
+    session_id = "db-global"
+
+    async def event_generator():
+        try:
+            async for chunk in run_db_agent_stream(
+                session_id=session_id,
+                message=request.message,
+                conversation_id=request.conversation_id,
+                model=request.model,
+                language=request.language,
+            ):
+                yield chunk
+        except Exception as exc:
+            import json
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+
+    return FastAPIStreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
